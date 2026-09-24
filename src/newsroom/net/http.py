@@ -1,7 +1,8 @@
 """HTTP client for fixed, known data-source APIs (GDELT, Wikidata, ...).
 
-Adds a descriptive User-Agent, a minimum interval between requests (per client),
-and exponential backoff on 429, 5xx and network errors, honouring Retry-After.
+Adds a descriptive User-Agent, a minimum gap between one request finishing and the
+next starting (per client), and exponential backoff on 429, 5xx and network errors,
+honouring Retry-After.
 Arbitrary URLs from external data must go through net.safe_fetch instead.
 """
 
@@ -42,6 +43,7 @@ class ApiClient:
         backoff_max: float = 300.0,
         throttle_base: float = 30.0,
         throttle_max_interval: float = 60.0,
+        retry_throttled: bool = True,
         transport: httpx.BaseTransport | None = None,
         sleep: Callable[[float], None] = time.sleep,
         clock: Callable[[], float] = time.monotonic,
@@ -58,6 +60,9 @@ class ApiClient:
         self.backoff_max = backoff_max
         self.throttle_base = throttle_base
         self.throttle_max_interval = throttle_max_interval
+        # False: a "too many requests" answer is final (Throttled), no retry. For APIs
+        # where retrying while blocked keeps the block going (GDELT).
+        self.retry_throttled = retry_throttled
         self._sleep = sleep
         self._clock = clock
         self._last: float | None = None
@@ -72,11 +77,12 @@ class ApiClient:
         self.close()
 
     def _pace(self) -> None:
+        """Wait until `min_interval` has passed since the previous request *finished*.
+        Measured from the start instead, a slow response would leave almost no gap."""
         if self._last is not None and self.min_interval > 0:
             wait = self.min_interval - (self._clock() - self._last)
             if wait > 0:
                 self._sleep(wait)
-        self._last = self._clock()
 
     def _backoff(self, attempt: int, retry_after: str | None, throttled: bool) -> float:
         if retry_after and retry_after.isdigit():
@@ -109,7 +115,10 @@ class ApiClient:
             retry_after = None
             throttled = False
             try:
-                response = self._client.get(url, params=params)
+                try:
+                    response = self._client.get(url, params=params)
+                finally:
+                    self._last = self._clock()
                 if response.status_code in RETRY_STATUSES:
                     retry_after = response.headers.get("retry-after")
                     last_error = f"HTTP {response.status_code}"
@@ -125,6 +134,12 @@ class ApiClient:
                 throttled = True
             except httpx.TransportError as exc:
                 last_error = type(exc).__name__
+            if throttled and not self.retry_throttled:
+                log.warning(
+                    "rate limited; not retrying this run",
+                    extra={"host": httpx.URL(url).host, "error": last_error},
+                )
+                raise Throttled(f"rate limited: {last_error}")
             if throttled:
                 self._slow_down(httpx.URL(url).host)
             if attempt < self.max_retries:

@@ -411,3 +411,25 @@ def test_catch_up_is_limited_but_new_outlets_get_backfill(conn: sqlite3.Connecti
     )
     assert source.starts["nytimes.com"] == later - timedelta(hours=6)  # not 30 h back
     assert source.starts["cbc.ca"] == later - timedelta(hours=48)  # never fetched: backfill
+
+
+def test_ingest_job_is_gentle_with_gdelt(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from newsroom import jobs
+    from newsroom.settings import Settings
+
+    made: list[dict] = []
+
+    class Client:
+        def __init__(self, user_agent: str, **kw: object) -> None:
+            made.append(kw)
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(jobs, "ApiClient", Client)
+    monkeypatch.setattr(jobs.ingest, "run_ingest", lambda *a, **k: None)
+    monkeypatch.setattr(jobs, "sync_config", lambda s: None)
+    jobs.ingest_articles(Settings(data_dir=tmp_path, contact_email="x@example.org"))
+    [kw] = made
+    assert kw["retry_throttled"] is False  # a refusal ends the run; no retrying into a block
+    assert kw["min_interval"] >= 10.0  # gap after each response finishes

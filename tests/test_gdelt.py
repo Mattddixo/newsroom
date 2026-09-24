@@ -213,3 +213,63 @@ def test_repeated_429_keeps_slowing_down() -> None:
     assert results[0].throttled  # ingestion stops the run instead of trying other groups
     assert [s for s in sleeps if s in (30.0, 60.0, 120.0)] == [30.0, 60.0, 120.0]
     assert client.min_interval == 60.0  # 10 -> 20 -> 40 -> capped at 60
+
+
+def test_pacing_counts_from_when_the_last_request_finished() -> None:
+    """GDELT measures its gap from the end of the previous request, so a slow response
+    must not eat into the wait."""
+    now = {"t": 100.0}
+    sleeps: list[float] = []
+
+    def slow(request: httpx.Request) -> httpx.Response:
+        now["t"] += 8.0  # the response takes 8 s
+        return httpx.Response(200, text="{}")
+
+    def sleep(s: float) -> None:
+        sleeps.append(s)
+        now["t"] += s
+
+    client = ApiClient(
+        "ua",
+        transport=httpx.MockTransport(slow),
+        min_interval=10.0,
+        sleep=sleep,
+        clock=lambda: now["t"],
+    )
+    client.get("https://api.gdeltproject.org/a")
+    client.get("https://api.gdeltproject.org/b")
+    assert sleeps == [10.0]  # the full gap after the 8 s response, not 10 - 8
+
+
+def test_gdelt_refusal_is_final_for_the_run() -> None:
+    """No retrying into GDELT's block: one refusal ends it (the next run resumes)."""
+    calls: list[str] = []
+    sleeps: list[float] = []
+
+    def refuse(request: httpx.Request) -> httpx.Response:
+        calls.append(str(request.url))
+        return httpx.Response(429, text="Please limit requests to one every 5 seconds")
+
+    client = ApiClient(
+        "ua",
+        transport=httpx.MockTransport(refuse),
+        sleep=sleeps.append,
+        retry_throttled=False,
+    )
+    results = list(GdeltSource(client).fetch(["cbc.ca"], START, END))
+    assert len(calls) == 1 and sleeps == []
+    assert results[0].throttled and results[0].error
+
+    def refuse_text(request: httpx.Request) -> httpx.Response:  # the 200-with-text variant
+        calls.append(str(request.url))
+        return httpx.Response(200, text=fixture("ratelimit.txt"))
+
+    calls.clear()
+    client = ApiClient(
+        "ua",
+        transport=httpx.MockTransport(refuse_text),
+        sleep=sleeps.append,
+        retry_throttled=False,
+    )
+    results = list(GdeltSource(client).fetch(["cbc.ca"], START, END))
+    assert len(calls) == 1 and results[0].throttled

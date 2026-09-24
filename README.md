@@ -161,12 +161,15 @@ There's no article text. Duplicates are removed by canonical URL, which ignores 
 tracking parameters, fragments and trailing slashes.
 
 - **Failures:** each GDELT request is committed separately, and each group of outlets keeps
-  its own progress marker. If a group's request fails after retries, only those outlets
-  re-cover their missed window next run; the others carry on. A restart mid-run keeps every
-  group that already finished. `make status` lists any outlets that are behind.
-- **Rate limits:** GDELT allows about one request every 5 seconds and we send one every 6.
-  When GDELT answers "429, too many requests", the worker waits 30 s, then 60 s, then 2 min,
-  and slows its pace for the rest of that run.
+  its own progress marker, moved forward after every successful time slice. A group stops at
+  its first error and the next run resumes it from there; the others carry on. Outlets that
+  fell behind resume at most `INGEST_CATCHUP_HOURS` back. `make status` lists any outlets
+  that are behind.
+- **Rate limits:** GDELT asks for at most one request every 5 seconds per IP. The worker
+  waits 10 s after each response *finishes* before the next request, which is about 10–20
+  requests per 15-minute run once caught up. If GDELT still answers "too many requests",
+  the run stops at once rather than retry (retrying while GDELT's block is on keeps it on)
+  and the next scheduled run resumes where it stopped.
 - **Dates:** GDELT only reports when it first *saw* an article. Every 15 minutes the worker reads
   the publication time from each new article's page metadata (schema.org `datePublished`,
   `article:published_time`, a few other standard tags) and cards show **Published …**. If the

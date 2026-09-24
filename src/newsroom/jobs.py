@@ -40,7 +40,15 @@ def ingest_articles(settings: Settings, *, wait: float = 0) -> ingest.RunSummary
     with ingest.ingest_lock(settings.lock_path("ingest"), wait, name="ingest"):
         tagger = sync_config(settings)
         conn = connect(settings.db_path)
-        client = ApiClient(settings.user_agent, min_interval=settings.gdelt_min_interval)
+        # GDELT: its limiter stays closed for a minute or more after a 429, and retrying
+        # inside that window keeps it closed. So a refusal ends the run (Throttled) and
+        # the next scheduled run, 15 minutes later, resumes where this one stopped.
+        client = ApiClient(
+            settings.user_agent,
+            min_interval=settings.gdelt_min_interval,
+            max_retries=2,
+            retry_throttled=False,
+        )
         try:
             source = GdeltSource(client, group_size=settings.gdelt_group_size)
             summary = ingest.run_ingest(
