@@ -21,8 +21,8 @@ init: ## Storage dirs + .env (make init CONTACT_EMAIL=you@example.org)
 host-setup: ## UFW rules + Docker-waits-for-Tailscale drop-in (sudo)
 	./scripts/host-setup.sh
 
-up: ## Build and start
-	$(COMPOSE) up -d --build
+up: ## Build, start, and wait until both containers are healthy
+	$(COMPOSE) up -d --build --wait
 
 down: ## Stop
 	$(COMPOSE) down

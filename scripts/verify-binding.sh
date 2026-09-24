@@ -22,6 +22,11 @@ else
 fi
 
 echo "Requests"
+# The web server needs a few seconds after a (re)start; wait up to 45 s for it.
+for _ in $(seq 1 45); do
+  curl -fsS -m 2 -o /dev/null "http://${ts_ip}:${PORT}/healthz" 2>/dev/null && break
+  sleep 1
+done
 if [[ "$(curl -fsS -m 3 "http://${ts_ip}:${PORT}/healthz" 2>/dev/null)" == "ok" ]]; then
   pass "Tailscale ${ts_ip}:${PORT} answers /healthz"
 else
