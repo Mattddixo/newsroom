@@ -403,6 +403,10 @@ def cmd_status(_: argparse.Namespace) -> int:
 
 
 def cmd_pubdates(args: argparse.Namespace) -> int:
+    if args.explain:
+        for line in jobs.explain_date(get_settings(), args.explain):
+            print(line)
+        return 0
     s = jobs.publication_dates(get_settings(), args.limit)
     if s is None:
         raise ConfigError("publication dates are off (PUBDATE_FETCH) or CONTACT_EMAIL is not set")
@@ -454,6 +458,12 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("ingest", help="fetch new articles now").set_defaults(func=cmd_ingest)
     pub = sub.add_parser("pubdates", help="read publication dates from recent article pages now")
     pub.add_argument("--limit", type=int, default=None, help="pages to read (default 150)")
+    pub.add_argument(
+        "--explain",
+        metavar="URL",
+        default=None,
+        help="show what the date check finds on one article page, and why",
+    )
     pub.set_defaults(func=cmd_pubdates)
     sub.add_parser("retag", help="recompute tags after editing tags.yaml").set_defaults(
         func=cmd_retag

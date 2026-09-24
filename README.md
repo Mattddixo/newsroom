@@ -103,7 +103,8 @@ for Tailscale at boot.
 | `make ingest-now`  | Fetch new articles now (also runs every 15 min on its own)           |
 | `make retag`       | Recompute tags after editing `config/tags.yaml`                      |
 | `make config-check`| Validate `config/outlets.yaml` and `config/tags.yaml`                |
-| `make outlets`     | Outlets with article counts and latest article time                  |
+| `make outlets`     | Outlets with article counts (total and last 24 h)                    |
+| `make date-check URL=…` | Explain the date check for one article: robots.txt verdict, every date tag found, which was used and why |
 | `make unmatched`   | Outlets without a Wikidata match, with candidate items               |
 | `make ownership`   | Re-resolve ownership for every outlet now                            |
 | `make funding`     | Look up funding records now and apply `config/public_funding.yaml`   |
@@ -184,8 +185,8 @@ tracking parameters, fragments and trailing slashes.
   the publication time from each new article's page metadata (schema.org `datePublished`,
   `article:published_time`, a few other standard tags) and cards show **Published …**. If the
   page gives no usable date, cards show **Seen …** (GDELT's time). Limits: articles from the
-  last `PUBDATE_MAX_AGE_DAYS` (1) only, at most `PUBDATE_PER_RUN` (150) pages per pass, one
-  request per second, robots.txt obeyed, sites that answer 403/429/5xx left alone for the run,
+  last `PUBDATE_MAX_AGE_DAYS` (3) only, newest first,, at most `PUBDATE_PER_RUN` (150) pages per pass, one
+  request per second, robots.txt obeyed (RFC 9309: most specific rule wins, wildcards supported; if robots.txt can't be reached the site is left alone and retried an hour later, never marked as disallowed), sites that answer 403/429/5xx left alone for the run,
   at most two tries per page, only the first 1.5 MB read and only the date kept. Turn it off
   with `PUBDATE_FETCH=false`. Run it by hand with `docker compose exec worker newsroom pubdates`.
 
@@ -275,6 +276,7 @@ Run inside the worker: `docker compose exec worker newsroom <command>`.
 |--------------------|----------------------------------------------------------------|
 | `status`           | Overview of ingestion, ownership, funding and backups          |
 | `pubdates [--limit N]` | Read publication dates from recent article pages now       |
+| `pubdates --explain URL` | Show what the date check finds on one article page, and why |
 | `ingest`           | Fetch new articles now. Exits 1 unless the run was fully OK     |
 | `retag`            | Recompute all tags from `tags.yaml`                            |
 | `prune`            | Delete articles older than `RETENTION_DAYS`                    |

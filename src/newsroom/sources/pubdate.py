@@ -6,7 +6,7 @@ page's metadata; this module reads it, and nothing else, from the start of the p
 Sources, in priority order (the first valid one wins):
   1. schema.org JSON-LD `datePublished` on an Article-type object (NewsArticle, ...)
   2. <meta property="article:published_time"> (Open Graph)
-  3. <meta itemprop="datePublished"> (schema.org microdata)
+  3. itemprop="datePublished" on <meta content> or <time datetime> (schema.org microdata)
   4. other common tags: parsely-pub-date, sailthru.date, pubdate, publishdate,
      dc.date.issued, dcterms.created
   5. JSON-LD `datePublished` on any object
@@ -21,11 +21,11 @@ import contextlib
 import json
 import re
 import time
-import urllib.robotparser
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from html.parser import HTMLParser
+from urllib.parse import urlsplit
 
 from newsroom.net.safe_fetch import FetchBlocked
 from newsroom.urls import host_of
@@ -54,12 +54,15 @@ class _MetaParser(HTMLParser):
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         a = {k.lower(): (v or "") for k, v in attrs}
+        if a.get("itemprop", "").lower() == "datepublished":
+            # schema.org microdata on any element: <meta content>, <time datetime>, ...
+            value = a.get("content") or a.get("datetime")
+            if value:
+                self.meta.setdefault("itemprop:datepublished", value)
         if tag == "meta":
-            key = (a.get("property") or a.get("name") or a.get("itemprop") or "").lower()
+            key = (a.get("property") or a.get("name") or "").lower()
             if key and "content" in a:
                 self.meta.setdefault(key, a["content"])
-            if a.get("itemprop", "").lower() == "datepublished" and "content" in a:
-                self.meta.setdefault("itemprop:datepublished", a["content"])
         elif tag == "script" and a.get("type", "").lower() == "application/ld+json":
             self._in_jsonld = True
             self._buf = []
@@ -119,8 +122,9 @@ def candidates(html: str) -> Iterator[tuple[str, str]]:
     for obj in objects:
         if "datePublished" in obj and any(ARTICLE_TYPES.search(t) for t in _types(obj)):
             yield "schema.org datePublished", obj["datePublished"]
-    if "article:published_time" in parser.meta:
-        yield "article:published_time", parser.meta["article:published_time"]
+    for key in ("article:published_time", "og:article:published_time"):
+        if key in parser.meta:
+            yield "article:published_time", parser.meta[key]
     if "itemprop:datepublished" in parser.meta:
         yield "itemprop datePublished", parser.meta["itemprop:datepublished"]
     for name in META_NAMES:
@@ -150,18 +154,76 @@ def extract(html: str, seen: datetime) -> PublishedDate | None:
 # ------------------------------------------------------------------ robots.txt
 
 
+class RobotsRules:
+    """One site's robots.txt, matched as RFC 9309 says: use the group(s) naming our
+    product token, else the "*" group(s); the longest matching rule wins; on a tie Allow
+    wins; "*" matches any characters and a trailing "$" anchors the end.
+    (Python's urllib.robotparser uses the first matching rule and has no wildcards.)"""
+
+    def __init__(self, text: str, agent: str) -> None:
+        agent = agent.lower()
+        groups: list[tuple[list[str], list[tuple[bool, str]]]] = []
+        agents: list[str] = []
+        rules: list[tuple[bool, str]] = []
+        for raw in text.splitlines():
+            line = raw.split("#", 1)[0].strip()
+            if ":" not in line:
+                continue
+            key, value = (part.strip() for part in line.split(":", 1))
+            key = key.lower()
+            if key == "user-agent":
+                if rules:  # a user-agent line after rules starts a new group
+                    groups.append((agents, rules))
+                    agents, rules = [], []
+                agents.append(value.lower())
+            elif key in ("allow", "disallow") and agents:
+                if value:  # an empty Disallow means "nothing disallowed"
+                    rules.append((key == "allow", value))
+        if agents:
+            groups.append((agents, rules))
+        mine = [r for a, r in groups if agent in a]
+        chosen = mine or [r for a, r in groups if "*" in a]
+        self.rules = [rule for group in chosen for rule in group]
+
+    @staticmethod
+    def _matches(pattern: str, path: str) -> bool:
+        anchored = pattern.endswith("$")
+        body = pattern[:-1] if anchored else pattern
+        regex = ".*".join(re.escape(part) for part in body.split("*"))
+        return re.match(regex + ("$" if anchored else ""), path) is not None
+
+    def allows(self, url: str) -> bool:
+        parts = urlsplit(url)
+        path = (parts.path or "/") + (f"?{parts.query}" if parts.query else "")
+        if path == "/robots.txt":
+            return True
+        best: tuple[int, bool] | None = None  # (pattern length, allow)
+        for allow, pattern in self.rules:
+            if self._matches(pattern, path):
+                candidate = (len(pattern), allow)
+                if best is None or candidate > best:  # longer wins; Allow wins ties
+                    best = candidate
+        return best is None or best[1]
+
+
+ALLOWED, DISALLOWED, UNAVAILABLE = "allowed", "disallowed", "unavailable"
+
+
 class Robots:
-    """robots.txt per host, cached for a day, following RFC 9309:
-    200 -> obey the rules; 4xx -> no rules (allowed); 5xx or unreachable -> disallowed."""
+    """robots.txt per host, following RFC 9309. 200: obey the rules (cached a day).
+    4xx, or something that isn't a robots file: no rules, allowed (cached a day).
+    5xx or unreachable: "unavailable" - stay away for now, but that's not a verdict on
+    the articles; asked again after an hour."""
 
     TTL = 24 * 3600
+    RETRY_UNAVAILABLE = 3600
 
     def __init__(
         self,
         fetch_text: Callable[[str], str],
         agent: str = "newsroom",
         clock: Callable[[], float] = time.monotonic,
-        cache: dict[str, tuple[float, urllib.robotparser.RobotFileParser | bool]] | None = None,
+        cache: dict[str, tuple[float, RobotsRules | str]] | None = None,
     ) -> None:
         self._fetch = fetch_text
         self.agent = agent
@@ -169,25 +231,32 @@ class Robots:
         # Pass a shared dict to keep rules across runs (the worker is long-lived).
         self._cache = cache if cache is not None else {}
 
-    def allowed(self, url: str) -> bool:
+    def check(self, url: str) -> str:
+        """ALLOWED, DISALLOWED, or UNAVAILABLE (robots.txt couldn't be read just now)."""
         host = host_of(url)
         cached = self._cache.get(host)
-        if cached is None or self._clock() - cached[0] > self.TTL:
+        if cached is not None:
+            ttl = self.RETRY_UNAVAILABLE if cached[1] == UNAVAILABLE else self.TTL
+            if self._clock() - cached[0] > ttl:
+                cached = None
+        if cached is None:
             cached = (self._clock(), self._load(host))
             self._cache[host] = cached
         rules = cached[1]
-        if isinstance(rules, bool):
+        if isinstance(rules, str):
             return rules
-        return rules.can_fetch(self.agent, url)
+        return ALLOWED if rules.allows(url) else DISALLOWED
 
-    def _load(self, host: str) -> urllib.robotparser.RobotFileParser | bool:
+    def allowed(self, url: str) -> bool:
+        return self.check(url) == ALLOWED
+
+    def _load(self, host: str) -> RobotsRules | str:
         try:
             text = self._fetch(f"https://{host}/robots.txt")
         except FetchBlocked as exc:
-            client_error = exc.status is not None and 400 <= exc.status < 500
-            # Something other than text/plain (often an HTML page) holds no usable rules.
-            not_robots = exc.status is None and "content-type" in str(exc)
-            return client_error or not_robots
-        parser = urllib.robotparser.RobotFileParser()
-        parser.parse(text.splitlines())
-        return parser
+            if exc.status is not None and 400 <= exc.status < 500:
+                return ALLOWED  # no robots.txt: no rules
+            if exc.status is None and "content-type" in str(exc):
+                return ALLOWED  # an HTML page or similar: holds no rules
+            return UNAVAILABLE
+        return RobotsRules(text, self.agent)

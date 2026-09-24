@@ -52,6 +52,19 @@ def test_ambiguous_and_implausible_dates_are_skipped() -> None:
     assert found.when == datetime(2026, 9, 22, 7, 0, tzinfo=UTC)
 
 
+@pytest.mark.parametrize(
+    "markup",
+    [
+        '<time itemprop="datePublished" datetime="2026-09-23T10:00:00-04:00">Sept. 23</time>',
+        '<span itemprop="datePublished" content="2026-09-23T14:00:00Z">Sept. 23</span>',
+        '<meta property="og:article:published_time" content="2026-09-23T14:00:00+00:00">',
+    ],
+)
+def test_other_standard_date_markup(markup: str) -> None:
+    found = extract(f"<html><head></head><body>{markup}</body></html>", SEEN)
+    assert found is not None and found.when == datetime(2026, 9, 23, 14, tzinfo=UTC)
+
+
 def test_no_usable_date() -> None:
     assert extract(page("no_date.html"), SEEN) is None  # "September 23, 2026" is not ISO
 
@@ -114,6 +127,83 @@ def test_robots_rules_and_rfc_fallbacks() -> None:
     assert robots.allowed("https://e.ca/news/1")  # HTML instead of rules
     robots.allowed("https://a.ca/news/2")
     assert fetched.count("https://a.ca/robots.txt") == 1  # cached
+
+
+@pytest.mark.parametrize(
+    ("text", "url", "allowed"),
+    [
+        # the longest (most specific) matching rule wins, wherever it is in the file
+        ("User-agent: *\nDisallow: /\nAllow: /news/\n", "https://x.ca/news/1", True),
+        ("User-agent: *\nDisallow: /\nAllow: /news/\n", "https://x.ca/sports/1", False),
+        (
+            "User-agent: *\nAllow: /news/\nDisallow: /news/private/\n",
+            "https://x.ca/news/private/a",
+            False,
+        ),
+        # on a tie, Allow wins
+        ("User-agent: *\nDisallow: /a\nAllow: /a\n", "https://x.ca/a", True),
+        # wildcards and end anchors
+        ("User-agent: *\nDisallow: /*.pdf$\n", "https://x.ca/doc.pdf", False),
+        ("User-agent: *\nDisallow: /*.pdf$\n", "https://x.ca/doc.pdf?x=1", True),
+        ("User-agent: *\nDisallow: /*?share=\n", "https://x.ca/news/1?share=fb", False),
+        ("User-agent: *\nDisallow: /*?share=\n", "https://x.ca/news/1", True),
+        # a group naming us replaces "*"; groups naming us are combined
+        ("User-agent: *\nDisallow: /\n\nUser-agent: newsroom\nAllow: /\n", "https://x.ca/n", True),
+        (
+            "User-agent: newsroom\nDisallow: /a/\nUser-agent: other\nDisallow: /\n"
+            "User-agent: NewsRoom\nDisallow: /b/\n",
+            "https://x.ca/b/1",
+            False,
+        ),
+        # other bots' groups don't apply to us
+        ("User-agent: GPTBot\nDisallow: /\n", "https://x.ca/news/1", True),
+        # an empty Disallow allows everything; comments and stray rules are ignored
+        ("User-agent: *\nDisallow:\n", "https://x.ca/anything", True),
+        (
+            "Disallow: /\nUser-agent: * # everyone\nDisallow: /x # not news\n",
+            "https://x.ca/n",
+            True,
+        ),
+        # several user-agent lines share one group
+        ("User-agent: a\nUser-agent: *\nDisallow: /\n", "https://x.ca/n", False),
+        # robots.txt itself is always allowed
+        ("User-agent: *\nDisallow: /\n", "https://x.ca/robots.txt", True),
+    ],
+)
+def test_robots_rules_follow_rfc_9309(text: str, url: str, allowed: bool) -> None:
+    assert Robots(lambda u: text).allowed(url) is allowed
+
+
+def test_unreachable_robots_is_not_a_verdict_and_is_asked_again_soon() -> None:
+    now = {"t": 0.0}
+    calls: list[str] = []
+
+    def fetch(url: str) -> str:
+        calls.append(url)
+        if len(calls) == 1:
+            raise FetchBlocked("request failed: ReadTimeout")
+        return "User-agent: *\nDisallow:\n"
+
+    robots = Robots(fetch, clock=lambda: now["t"])
+    assert robots.check("https://a.ca/x") == "unavailable"
+    now["t"] = 30 * 60
+    assert robots.check("https://a.ca/x") == "unavailable"  # not hammered
+    now["t"] = 61 * 60
+    assert robots.check("https://a.ca/x") == "allowed"  # asked again after an hour
+    assert len(calls) == 2
+
+
+def test_unavailable_robots_leaves_articles_unmarked(conn: sqlite3.Connection) -> None:
+    def fetch(url: str) -> str:
+        raise FetchBlocked("unexpected status 503", status=503)
+
+    requested: list[str] = []
+    s = refresh_pub_dates(
+        conn, lambda u, d: requested.append(u), Robots(fetch), NOW, sleep=lambda x: None
+    )
+    assert requested == [] and s.robots_disallowed == 0
+    r = row(conn, "https://cbc.ca/news/1")
+    assert r["pubdate_method"] is None and r["pubdate_attempts"] == 0  # retried next pass
 
 
 def test_robots_cache_expires_after_a_day() -> None:
@@ -293,3 +383,32 @@ def test_job_wiring_limits_each_request(
     assert jobs._publication_dates(off, conn) is None
     no_contact = Settings(data_dir=tmp_path)
     assert jobs._publication_dates(no_contact, conn) is None
+
+
+def test_explain_shows_each_step(
+    conn: sqlite3.Connection, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from newsroom import jobs
+
+    def fake_safe_fetch(url: str, **kw):  # type: ignore[no-untyped-def]
+        if url.endswith("/robots.txt"):
+            return FetchResult(
+                url=url, content_type="text/plain", body=b"User-agent: *\nDisallow: /private/\n"
+            )
+        return html_result(url, page("naive_and_future.html"))
+
+    monkeypatch.setattr(jobs, "safe_fetch", fake_safe_fetch)
+    settings = Settings(data_dir=tmp_path, contact_email="x@example.org")
+    lines = jobs.explain_date(settings, "https://cbc.ca/news/1")
+    text = "\n".join(lines)
+    assert "outlet: cbc.ca" in text and "robots.txt: allowed" in text
+    assert "rejected: not a full date-time with a time zone" in text  # the naive value
+    assert "rejected: later than GDELT saw the article" in text
+    assert "result:" in text
+
+    blocked = jobs.explain_date(settings, "https://cbc.ca/private/x")
+    assert blocked[-1] == "robots.txt: disallowed"  # stops there: the page isn't read
+    with pytest.raises(LookupError):
+        jobs.explain_date(settings, "https://example.com/not-an-outlet")
+    with pytest.raises(ValueError):
+        jobs.explain_date(settings, "javascript:alert(1)")

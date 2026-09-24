@@ -2,7 +2,7 @@
 COMPOSE := docker compose
 
 .DEFAULT_GOAL := help
-.PHONY: help setup init host-setup up down restart logs ps status shell ingest-now retag config-check outlets unmatched ownership funding backup-db migrate test audit verify lint
+.PHONY: help setup init host-setup up down restart logs ps status shell ingest-now retag config-check date-check outlets unmatched ownership funding backup-db migrate test audit verify lint
 
 help: ## List targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  %-12s %s\n", $$1, $$2}'
@@ -50,6 +50,10 @@ retag: ## Recompute tags after editing config/tags.yaml
 
 config-check: ## Validate config/outlets.yaml and config/tags.yaml
 	$(COMPOSE) exec worker newsroom config check
+
+date-check: ## Explain the date check for one article: make date-check URL=https://...
+	@test -n "$(URL)" || (echo "usage: make date-check URL=https://..." && exit 2)
+	$(COMPOSE) exec worker newsroom pubdates --explain "$(URL)"
 
 outlets: ## List outlets with article counts
 	$(COMPOSE) exec worker newsroom outlets list

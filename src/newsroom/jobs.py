@@ -4,20 +4,30 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
 from newsroom.config import ConfigError, load_curated_funding, load_outlets, load_tags
 from newsroom.db import connect
 from newsroom.net.http import ApiClient
-from newsroom.net.safe_fetch import FetchResult, safe_fetch
+from newsroom.net.safe_fetch import FetchBlocked, FetchResult, safe_fetch
 from newsroom.services import funding, ingest, ownership, pubdates
+from newsroom.services.ingest import parse_ts, ts
 from newsroom.services.tagging import Tagger, retag_all, sync_tags
 from newsroom.settings import Settings
 from newsroom.sources import funding as funding_sources
 from newsroom.sources.gdelt import GdeltSource
 from newsroom.sources.gdelt_files import GkgFilesSource
-from newsroom.sources.pubdate import Robots
+from newsroom.sources.pubdate import (
+    EARLIEST,
+    FUTURE_SKEW,
+    Robots,
+    candidates,
+    extract,
+    parse_timestamp,
+)
 from newsroom.sources.wikidata import WikidataSource
+from newsroom.urls import host_matches, host_of, is_http_url
 
 log = logging.getLogger(__name__)
 
@@ -82,6 +92,21 @@ def _publication_dates(
         log.warning("publication dates skipped: CONTACT_EMAIL is not set")
         return None
     outlet_domains = [r[0] for r in conn.execute("SELECT domain FROM outlets WHERE active = 1")]
+    robots_text, page = _page_fetchers(settings, outlet_domains)
+    return pubdates.refresh_pub_dates(
+        conn,
+        page,
+        Robots(robots_text, cache=_ROBOTS_CACHE),
+        datetime.now(UTC).replace(microsecond=0),
+        limit=limit or settings.pubdate_per_run,
+        max_age=timedelta(days=settings.pubdate_max_age_days),
+    )
+
+
+def _page_fetchers(
+    settings: Settings, outlet_domains: list[str]
+) -> tuple[Callable[[str], str], Callable[[str, str], FetchResult]]:
+    """robots.txt and article-page fetchers: SSRF-guarded, outlet sites only, size-capped."""
 
     def robots_text(url: str) -> str:
         page = safe_fetch(
@@ -106,14 +131,62 @@ def _publication_dates(
             truncate=True,
         )
 
-    return pubdates.refresh_pub_dates(
-        conn,
-        page,
-        Robots(robots_text, cache=_ROBOTS_CACHE),
-        datetime.now(UTC).replace(microsecond=0),
-        limit=limit or settings.pubdate_per_run,
-        max_age=timedelta(days=settings.pubdate_max_age_days),
-    )
+    return robots_text, page
+
+
+def explain_date(settings: Settings, url: str) -> list[str]:
+    """What the date check would do with one article page, step by step (for diagnosis).
+    Same fetchers and limits as the real check; only outlets' own sites."""
+    if not is_http_url(url):
+        raise ValueError("not an http(s) link")
+    conn = connect(settings.db_path)
+    try:
+        domains = [r[0] for r in conn.execute("SELECT domain FROM outlets WHERE active = 1")]
+        seen_row = conn.execute(
+            "SELECT published_at FROM articles WHERE url = ?", (url,)
+        ).fetchone()
+    finally:
+        conn.close()
+    host = host_of(url)
+    domain = next((d for d in domains if host_matches(host, d)), None)
+    if domain is None:
+        raise LookupError(f"{host} is not one of the outlets in outlets.yaml")
+    seen = parse_ts(seen_row[0]) if seen_row else datetime.now(UTC)
+    lines = [
+        f"outlet: {domain}",
+        f"GDELT saw it: {ts(seen) if seen_row else 'not in the database (using now)'}",
+    ]
+    robots_text, page = _page_fetchers(settings, domains)
+    verdict = Robots(robots_text).check(url)
+    lines.append(f"robots.txt: {verdict}")
+    if verdict != "allowed":
+        return lines
+    try:
+        result = page(url, domain)
+    except FetchBlocked as exc:
+        lines.append(f"page: could not be read ({exc})")
+        return lines
+    lines.append(f"page: read {len(result.body):,} bytes")
+    found = extract(result.body.decode("utf-8", errors="replace"), seen)
+    listed = False
+    for method, raw in candidates(result.body.decode("utf-8", errors="replace")):
+        listed = True
+        when = parse_timestamp(raw)
+        if when is None:
+            why = "rejected: not a full date-time with a time zone"
+        elif when > seen + FUTURE_SKEW:
+            why = "rejected: later than GDELT saw the article"
+        elif when < EARLIEST:
+            why = "rejected: before 1995"
+        elif found and found.method == method and found.when == when:
+            why = "USED"
+        else:
+            why = "valid (a higher-priority tag was used)"
+        lines.append(f"  {method}: {str(raw)[:60]!r} -> {why}")
+    if not listed:
+        lines.append("  no date tags in the page's metadata")
+    lines.append(f"result: {ts(found.when) + ' (' + found.method + ')' if found else 'no date'}")
+    return lines
 
 
 def publication_dates(

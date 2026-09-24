@@ -19,7 +19,7 @@ from datetime import UTC, datetime, timedelta
 
 from newsroom.net.safe_fetch import FetchBlocked, FetchResult
 from newsroom.services.ingest import parse_ts, ts
-from newsroom.sources.pubdate import Robots, extract
+from newsroom.sources.pubdate import DISALLOWED, UNAVAILABLE, Robots, extract
 from newsroom.urls import host_of
 
 log = logging.getLogger(__name__)
@@ -81,7 +81,15 @@ def refresh_pub_dates(
         host = host_of(row["url"])
         if host in skip_hosts:
             continue
-        if not robots.allowed(row["url"]):
+        verdict = robots.check(row["url"])
+        if verdict == UNAVAILABLE:
+            # robots.txt couldn't be read just now: leave the site alone this pass and
+            # record nothing (it's not a verdict on the article); tried again next pass.
+            skip_hosts.add(host)
+            summary.hosts_skipped += 1
+            log.info("robots.txt unavailable; leaving host alone this run", extra={"host": host})
+            continue
+        if verdict == DISALLOWED:
             summary.robots_disallowed += 1
             record(row["id"], str(MAX_ATTEMPTS), None, "robots.txt disallows")
             continue
