@@ -38,8 +38,9 @@ def client_for(handler, sleeps: list[float] | None = None) -> ApiClient:  # type
 
 
 def test_parse_artlist_fixture() -> None:
-    records, raw = parse_articles(fixture("artlist.json"), DOMAINS)
+    records, raw, latest = parse_articles(fixture("artlist.json"), DOMAINS)
     assert raw == 8
+    assert latest is not None  # newest "seendate" of all raw items, used for paging
     urls = [r.url for r in records]
     # lookalike domain, javascript: URL, missing date and blank title are dropped
     assert "https://fakecbc.ca/scam" not in urls
@@ -62,7 +63,7 @@ def test_parse_artlist_fixture() -> None:
 
 
 def test_parse_empty_and_errors() -> None:
-    assert parse_articles(fixture("empty.json"), DOMAINS) == ([], 0)
+    assert parse_articles(fixture("empty.json"), DOMAINS) == ([], 0, None)
     with pytest.raises(ApiError, match="non-JSON"):
         parse_articles(fixture("error.txt"), DOMAINS)
     with pytest.raises(ApiError, match="malformed"):
@@ -96,31 +97,57 @@ def test_fetch_groups_and_params() -> None:
     assert all(r.error is None for r in results)
 
 
-def test_saturated_window_is_split() -> None:
-    windows: list[tuple[str, str]] = []
+def page_of(n: int, first: datetime, tag: str) -> str:
+    """n articles, one a minute from `first` (GDELT returns them oldest first)."""
+    return json.dumps(
+        {
+            "articles": [
+                {
+                    "url": f"https://www.cbc.ca/n/{tag}-{i}",
+                    "title": f"Story {tag} {i}",
+                    "seendate": (first + timedelta(minutes=i)).strftime("%Y%m%dT%H%M%SZ"),
+                    "language": "English",
+                }
+                for i in range(n)
+            ]
+        }
+    )
+
+
+def test_full_page_is_kept_and_the_next_page_starts_from_its_newest() -> None:
+    starts: list[str] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         q = parse_qs(urlsplit(str(request.url)).query)
-        windows.append((q["startdatetime"][0], q["enddatetime"][0]))
-        n = MAX_RECORDS if len(windows) == 1 else 3
-        articles = [
-            {
-                "url": f"https://www.cbc.ca/n/{len(windows)}-{i}",
-                "title": f"Story {i}",
-                "seendate": "20260923T100000Z",
-                "language": "English",
-            }
-            for i in range(n)
-        ]
-        return httpx.Response(200, text=json.dumps({"articles": articles}))
+        assert q["sort"] == ["dateasc"]
+        starts.append(q["startdatetime"][0])
+        if len(starts) == 1:
+            return httpx.Response(200, text=page_of(MAX_RECORDS, START, "a"))
+        return httpx.Response(200, text=page_of(3, START + timedelta(minutes=260), "b"))
 
     results = list(GdeltSource(client_for(handler)).fetch(["cbc.ca"], START, END))
-    assert len(windows) == 3
-    assert windows[1] == ("20260922120000", "20260923030000")
-    assert windows[2] == ("20260923030000", "20260923180000")
-    assert [len(r.records) for r in results] == [3, 3]
-    # oldest half first; each result says how far the group is now covered
-    assert [r.window_end for r in results] == [START + (END - START) / 2, END]
+    newest_on_page_one = START + timedelta(minutes=MAX_RECORDS - 1)
+    assert starts == ["20260922120000", newest_on_page_one.strftime("%Y%m%d%H%M%S")]
+    assert [len(r.records) for r in results] == [MAX_RECORDS, 3]  # nothing thrown away
+    assert [r.window_end for r in results] == [newest_on_page_one, END]
+
+
+def test_full_page_at_one_timestamp_still_moves_on() -> None:
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        if calls["n"] == 1:  # 250 articles all seen in the same second
+            same = json.loads(page_of(MAX_RECORDS, START, "a"))
+            for a in same["articles"]:
+                a["seendate"] = START.strftime("%Y%m%dT%H%M%SZ")
+            return httpx.Response(200, text=json.dumps(same))
+        return httpx.Response(200, text=fixture("empty.json"))
+
+    results = list(GdeltSource(client_for(handler)).fetch(["cbc.ca"], START, END))
+    assert calls["n"] == 2
+    assert results[0].window_end == START + timedelta(seconds=1)
+    assert results[-1].window_end == END
 
 
 def test_rate_limit_text_triggers_backoff_then_succeeds() -> None:

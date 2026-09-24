@@ -2,9 +2,11 @@
 
 Free, no key. Notes that shape this adapter:
 - Every call needs a query and returns at most 250 articles, so outlets are
-  queried in small OR-groups and a saturated time window is split in half.
-- GDELT asks for no more than one request every 5 seconds; we pace at 10 (it still
-  throttles at 6).
+  queried in small OR-groups (GDELT limits query length). Results are requested
+  oldest first; a full page of 250 is kept and the next request starts from its
+  newest article, so every request adds articles and moves progress forward.
+- GDELT asks for no more than one request every 5 seconds, but in practice refuses
+  requests 10 s apart; we wait 20 s after each response.
 - Errors and rate-limit notices arrive as HTTP 200 with a plain-text body.
 - "seendate" is when GDELT first saw the article (usually minutes after publication).
 """
@@ -30,7 +32,7 @@ log = logging.getLogger(__name__)
 
 ENDPOINT = "https://api.gdeltproject.org/api/v2/doc/doc"
 MAX_RECORDS = 250
-MIN_SPLIT = timedelta(minutes=15)
+MAX_PAGES = 40  # per group per run; a safety stop, far above what a run needs
 MAX_TITLE = 500
 _DOMAIN_RE = re.compile(r"^[a-z0-9-]+(\.[a-z0-9-]+)+$")
 
@@ -60,7 +62,7 @@ def build_url(query: str, start: datetime, end: datetime) -> str:
         "mode": "artlist",
         "format": "json",
         "maxrecords": MAX_RECORDS,
-        "sort": "datedesc",
+        "sort": "dateasc",
         "startdatetime": start.astimezone(UTC).strftime("%Y%m%d%H%M%S"),
         "enddatetime": end.astimezone(UTC).strftime("%Y%m%d%H%M%S"),
     }
@@ -90,8 +92,11 @@ def clean_title(value: object) -> str:
     return title[:MAX_TITLE]
 
 
-def parse_articles(body: str, domains: Sequence[str]) -> tuple[list[ArticleRecord], int]:
-    """Parse an artlist JSON body. Returns (valid records, raw article count).
+def parse_articles(
+    body: str, domains: Sequence[str]
+) -> tuple[list[ArticleRecord], int, datetime | None]:
+    """Parse an artlist JSON body. Returns (valid records, raw article count, latest
+    "seendate" among all raw articles, kept or not).
 
     Raises ApiError if the body is not the expected JSON (GDELT error text).
     """
@@ -107,9 +112,13 @@ def parse_articles(body: str, domains: Sequence[str]) -> tuple[list[ArticleRecor
         raise ApiError("GDELT 'articles' is not a list")
 
     records: list[ArticleRecord] = []
+    latest: datetime | None = None
     for item in raw:
         if not isinstance(item, dict):
             continue
+        seen = parse_seendate(item.get("seendate", ""))
+        if seen and (latest is None or seen > latest):
+            latest = seen
         url = item.get("url")
         if not isinstance(url, str) or not is_http_url(url):
             continue
@@ -118,7 +127,6 @@ def parse_articles(body: str, domains: Sequence[str]) -> tuple[list[ArticleRecor
         if domain is None:  # "domain:" is a substring match; keep only exact outlets
             continue
         title = clean_title(item.get("title"))
-        seen = parse_seendate(item.get("seendate", ""))
         if not title or seen is None:
             continue
         image = item.get("socialimage")
@@ -133,7 +141,7 @@ def parse_articles(body: str, domains: Sequence[str]) -> tuple[list[ArticleRecor
                 image_url=image if isinstance(image, str) and is_http_url(image) else None,
             )
         )
-    return records, len(raw)
+    return records, len(raw), latest
 
 
 class GdeltSource:
@@ -154,24 +162,36 @@ class GdeltSource:
             yield from self._window(group, start, end)
 
     def _window(
-        self, group: Sequence[str], start: datetime, end: datetime, depth: int = 0
+        self, group: Sequence[str], start: datetime, end: datetime
     ) -> Iterator[QueryResult]:
-        url = build_url(build_query(group), start, end)
-        try:
-            body = self.client.get(url, check=check_response).text
-            records, raw_count = parse_articles(body, group)
-        except ApiError as exc:
-            log.warning("gdelt query failed", extra={"domains": list(group), "error": str(exc)})
-            yield QueryResult(source_url=url, error=str(exc), throttled=isinstance(exc, Throttled))
-            return
-        if raw_count >= MAX_RECORDS and end - start > MIN_SPLIT and depth < 8:
-            mid = start + (end - start) / 2
-            yield from self._window(group, start, mid, depth + 1)
-            yield from self._window(group, mid, end, depth + 1)
-            return
-        if raw_count >= MAX_RECORDS:
-            log.warning(
-                "gdelt window still saturated; some articles may be missed",
-                extra={"domains": list(group), "start": start.isoformat()},
-            )
-        yield QueryResult(source_url=url, records=records, window_end=end)
+        """Page through [start, end) oldest first. A full page (250) covers up to its newest
+        article; the next request starts there (re-fetched articles are deduplicated)."""
+        query = build_query(group)
+        page_start = start
+        for _ in range(MAX_PAGES):
+            url = build_url(query, page_start, end)
+            try:
+                body = self.client.get(url, check=check_response).text
+                records, raw_count, latest = parse_articles(body, group)
+            except ApiError as exc:
+                log.warning("gdelt query failed", extra={"domains": list(group), "error": str(exc)})
+                yield QueryResult(
+                    source_url=url, error=str(exc), throttled=isinstance(exc, Throttled)
+                )
+                return
+            if raw_count < MAX_RECORDS or latest is None:
+                yield QueryResult(source_url=url, records=records, window_end=end)
+                return
+            if latest <= page_start:
+                # More than 250 articles share one timestamp: take what we got and step past it.
+                log.warning(
+                    "gdelt page full at a single timestamp; some articles may be missed",
+                    extra={"domains": list(group), "at": latest.isoformat()},
+                )
+                latest = page_start + timedelta(seconds=1)
+            yield QueryResult(source_url=url, records=records, window_end=latest)
+            page_start = latest
+        # Not done: report it as an error so the group isn't marked complete; the next run
+        # resumes from the last page.
+        log.warning("gdelt paging stopped early", extra={"domains": list(group)})
+        yield QueryResult(source_url=url, error=f"stopped after {MAX_PAGES} pages")

@@ -135,7 +135,7 @@ for Tailscale at boot.
 | `RETENTION_DAYS`  | `365`              | Articles older than this are deleted nightly (0 = keep forever) |
 | `FEED_OUTLET_CAP` | `3`                | Balanced feed: most articles shown per outlet per hour ("Show: Everything" shows all) |
 | `GDELT_GROUP_SIZE`| `8`                | Outlets per GDELT query                                      |
-| `GDELT_MIN_INTERVAL` | `10`            | Seconds between GDELT requests (GDELT asks for ≥ 5; it still sends 429s at 6) |
+| `GDELT_MIN_INTERVAL` | `20`            | Seconds to wait after each GDELT response (GDELT asks for ≥ 5 but refuses at 10) |
 | `OWNERSHIP_REFRESH_DAYS` | `7`         | Re-check each outlet's Wikidata chain after this many days   |
 | `BACKUP_HOUR`     | `3`                | Local hour for the nightly snapshot                          |
 | `BACKUP_KEEP`     | `14`               | Snapshots to keep                                            |
@@ -166,8 +166,9 @@ tracking parameters, fragments and trailing slashes.
   fell behind resume at most `INGEST_CATCHUP_HOURS` back. `make status` lists any outlets
   that are behind.
 - **Rate limits:** GDELT asks for at most one request every 5 seconds per IP. The worker
-  waits 10 s after each response *finishes* before the next request, which is about 10–20
-  requests per 15-minute run once caught up. If GDELT still answers "too many requests",
+  waits 20 s after each response *finishes* before the next request, which is about 10–15
+  requests per 15-minute run. Results come oldest first and every response is kept, so each
+  request moves progress forward. If GDELT still answers "too many requests",
   the run stops at once rather than retry (retrying while GDELT's block is on keeps it on)
   and the next scheduled run resumes where it stopped.
 - **Dates:** GDELT only reports when it first *saw* an article. Every 15 minutes the worker reads
