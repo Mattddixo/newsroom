@@ -74,6 +74,13 @@ def test_match_query_and_results() -> None:
     assert len(website_variants("cbc.ca")) == 8
     query = build_match_query(["cbc.ca"])
     assert "<http://cbc.ca>" in query and "DeprecatedRank" in query
+    # statements are looked up by value, in written order (no full scan of P856)
+    assert 'hint:optimizer "None"' in query
+    assert (
+        query.index("VALUES ?site")
+        < query.index("?st ps:P856 ?site")
+        < query.index("?item p:P856 ?st")
+    )
     result = parse_match_results(
         load("sparql_match.json"), ["exampledaily.ca", "twonames.ca", "nothing.ca"]
     )

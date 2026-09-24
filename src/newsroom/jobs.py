@@ -76,7 +76,8 @@ def wikidata_client(settings: Settings) -> ApiClient:
     """Wikimedia's User-Agent policy requires contact details; refuse to run without them."""
     if not settings.contact_email:
         raise ConfigError("CONTACT_EMAIL must be set in .env before querying Wikidata")
-    return ApiClient(settings.user_agent, min_interval=settings.wikidata_min_interval)
+    # 65 s: the query service's own limit is 60 s, so don't give up before it does.
+    return ApiClient(settings.user_agent, timeout=65.0, min_interval=settings.wikidata_min_interval)
 
 
 def resolve_ownership(

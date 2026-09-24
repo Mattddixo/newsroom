@@ -45,7 +45,7 @@ RELATIONS = {P_OWNED_BY: "owned_by", P_PARENT_ORG: "parent_org"}
 QID_RE = re.compile(r"^Q[1-9]\d{0,11}$")
 LANGUAGES = ("en", "fr")
 BATCH = 50
-MATCH_BATCH = 20
+MATCH_BATCH = 10
 
 
 def entity_url(qid: str, prop: str | None = None) -> str:
@@ -97,10 +97,15 @@ def website_variants(domain: str) -> list[str]:
 
 def build_match_query(domains: Sequence[str]) -> str:
     values = " ".join(f"<{v}>" for d in domains for v in website_variants(d))
+    # Join order matters on the Wikidata Query Service: left to its own planner it may
+    # walk every P856 statement first (timeouts). With the optimizer off, it starts from
+    # the handful of URLs, looks up statements *by value*, then their items.
     return (
         "SELECT ?item ?itemLabel ?itemDescription ?site WHERE {"
+        ' hint:Query hint:optimizer "None" .'
         f" VALUES ?site {{ {values} }}"
-        " ?item p:P856 ?st . ?st ps:P856 ?site ."
+        " ?st ps:P856 ?site ."
+        " ?item p:P856 ?st ."
         " FILTER NOT EXISTS { ?st wikibase:rank wikibase:DeprecatedRank }"
         ' SERVICE wikibase:label { bd:serviceParam wikibase:language "en,fr,mul". }'
         " }"
