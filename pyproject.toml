@@ -1,0 +1,50 @@
+[project]
+name = "newsroom"
+version = "0.1.0"
+description = "Self-hosted news feed that shows who owns each outlet, with sources."
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "jinja2",
+    "httpx",
+    "slowapi",
+    "apscheduler>=3.10,<4",
+    "tzdata",
+]
+
+[project.scripts]
+newsroom = "newsroom.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "ruff",
+    "pip-audit",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/newsroom"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S", "SIM", "RUF"]
+ignore = [
+    "S101", # assert is fine in tests
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

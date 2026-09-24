@@ -1,0 +1,70 @@
+# newsroom: `docker compose up -d` is the whole deploy.
+# Requires .env (run `make init` once). See README.md.
+name: newsroom
+
+x-app: &app
+  image: newsroom:local
+  build:
+    context: .
+    target: runtime
+  env_file: .env
+  environment:
+    NEWSROOM_DATA_DIR: /data
+  user: "10001:10001"
+  read_only: true
+  tmpfs:
+    - /tmp:size=16m,mode=1777,noexec,nosuid,nodev
+  cap_drop: [ALL]
+  security_opt:
+    - no-new-privileges:true
+  init: true
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "5"
+
+services:
+  web:
+    <<: *app
+    ports:
+      # Published ONLY on the Tailscale address. Never use 0.0.0.0 here.
+      - "${TAILSCALE_IP:?TAILSCALE_IP must be set in .env (run make init)}:8081:8000"
+    volumes:
+      # rw mount is required for SQLite WAL shared memory; the app itself
+      # opens the database with mode=ro + query_only.
+      - ${STORAGE_DIR:-/storage/newsroom}/db:/data/db
+      - ${STORAGE_DIR:-/storage/newsroom}/logos:/data/logos:ro
+    healthcheck:
+      test: ["CMD", "newsroom", "healthcheck", "web"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 256M
+          pids: 128
+
+  worker:
+    <<: *app
+    command: ["newsroom", "worker"]
+    volumes:
+      - ${STORAGE_DIR:-/storage/newsroom}/db:/data/db
+      - ${STORAGE_DIR:-/storage/newsroom}/logos:/data/logos
+      - ${STORAGE_DIR:-/storage/newsroom}/backups:/data/backups
+    healthcheck:
+      test: ["CMD", "newsroom", "healthcheck", "worker"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 384M
+          pids: 128
