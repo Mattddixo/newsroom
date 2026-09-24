@@ -54,11 +54,17 @@ def run_backup(settings: Settings) -> None:
 
 def run_ingest(settings: Settings) -> None:
     try:
-        jobs.ingest_articles(settings, wait=INGEST_WAIT)
+        summary = jobs.ingest_articles(settings, wait=INGEST_WAIT)
     except IngestBusy:
         log.warning("ingest skipped: another ingest held the lock for 30 minutes")
+        return
     except Exception:
         log.exception("ingest failed")
+        return
+    if summary.inserted:
+        # Date the new articles straight away, so the feed can show them with their
+        # publication time (it holds new articles back until they've been checked).
+        run_pubdates(settings)
 
 
 def run_ownership(settings: Settings) -> None:

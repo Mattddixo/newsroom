@@ -47,6 +47,7 @@ class Settings:
     ingest_source: str = "gkg"  # gkg: 15-minute files (default) | doc: DOC 2.0 search API
     retention_days: int = 365
     feed_outlet_cap: int = 3
+    pubdate_hold_minutes: int = 15  # new articles wait (at most this long) for their date
     gdelt_group_size: int = 8
     gdelt_min_interval: float = 20.0
     ownership_refresh_days: int = 7
@@ -105,6 +106,7 @@ def load_settings() -> Settings:
         ingest_source="doc" if env.get("INGEST_SOURCE", "gkg").strip().lower() == "doc" else "gkg",
         retention_days=int(env.get("RETENTION_DAYS", "365")),
         feed_outlet_cap=max(1, int(env.get("FEED_OUTLET_CAP", "3"))),
+        pubdate_hold_minutes=max(0, int(env.get("PUBDATE_HOLD_MINUTES", "15"))),
         gdelt_group_size=int(env.get("GDELT_GROUP_SIZE", "8")),
         gdelt_min_interval=float(env.get("GDELT_MIN_INTERVAL", "20")),
         ownership_refresh_days=int(env.get("OWNERSHIP_REFRESH_DAYS", "7")),

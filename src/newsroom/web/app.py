@@ -7,7 +7,7 @@ import re
 import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from urllib.parse import urlencode, urlsplit
 from zoneinfo import ZoneInfo
@@ -72,6 +72,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     templates.env.filters["money"] = _money
     templates.env.globals["page_url"] = lambda f, n: _feed_url(f.params(page=n))
     templates.env.globals["feed_url"] = _feed_url
+
+    # New articles wait (at most PUBDATE_HOLD_MINUTES) until their publication date has
+    # been checked, normally within a minute of arriving. No date checking, no wait.
+    dates_checked = settings.pubdate_fetch and bool(settings.contact_email)
+    visibility = queries.Visibility(
+        timedelta(minutes=settings.pubdate_hold_minutes if dates_checked else 0)
+    )
     templates.env.globals["mixes"] = queries.MIXES
     templates.env.filters["source_name"] = _source_name
     client_ip = client_ip_resolver(settings.trusted_proxies)
@@ -124,15 +131,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "owner_options": [],
             "last_ingest": None,
             "stale": False,
-            "latest_id": 0,
+            "since": "",
             "interval": settings.ingest_interval_minutes,
             "cap": settings.feed_outlet_cap,
         }
         with database() as conn:
             if conn is not None:
                 try:
-                    context["page"] = queries.feed(conn, filters, tz, settings.feed_outlet_cap)
-                    context["latest_id"] = queries.latest_id(conn)
+                    drawn = datetime.now(UTC).replace(microsecond=0)
+                    context["page"] = queries.feed(
+                        conn, filters, tz, settings.feed_outlet_cap, visibility, drawn
+                    )
+                    context["since"] = drawn.strftime(SINCE_FORMAT)
                     context["options"] = queries.filter_options(conn)
                     graph = Graph.load(conn)
                     context["graph"] = graph
@@ -173,11 +183,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         since = params.pop("since", "")
         filters = queries.FeedFilters.parse(params)
         count = 0
-        if since.isdigit() and len(since) <= 12 and not filters.q:
+        drawn = _parse_since(since)
+        if drawn and not filters.q:
             with database() as conn:
                 if conn is not None:
                     count = queries.count_new(
-                        conn, filters, tz, int(since), settings.feed_outlet_cap
+                        conn, filters, tz, drawn, settings.feed_outlet_cap, visibility
                     )
         return templates.TemplateResponse(
             request, "_new_articles.html", {"count": count, "filters": filters}
@@ -332,6 +343,18 @@ def _article_date(when: datetime, now: datetime) -> str:
     """'Sep 23, 20:38'; the year is added for articles from another year."""
     year = f" {when.year}" if when.year != now.year else ""
     return f"{when:%b} {when.day}{year}, {when:%H:%M}"
+
+
+SINCE_FORMAT = "%Y%m%d%H%M%S"  # when the feed page was drawn (UTC), for the new-articles poll
+
+
+def _parse_since(value: str) -> datetime | None:
+    if not (value.isdigit() and len(value) == 14):
+        return None
+    try:
+        return datetime.strptime(value, SINCE_FORMAT).replace(tzinfo=UTC)
+    except ValueError:
+        return None
 
 
 def _feed_url(params: dict[str, str]) -> str:

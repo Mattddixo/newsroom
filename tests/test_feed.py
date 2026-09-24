@@ -288,9 +288,20 @@ def test_empty_and_invalid_params_redirect_to_clean_url(client: TestClient) -> N
     assert client.get("/?tag=housing", follow_redirects=False).status_code == 200
 
 
+def age_articles(settings: Settings, minutes: int = 60) -> None:
+    """Pretend the articles so far were collected a while ago (retrieved_at is real time)."""
+    from newsroom.db import connect
+
+    conn = connect(settings.db_path)
+    then = (datetime.now(UTC) - timedelta(minutes=minutes)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    conn.execute("UPDATE articles SET retrieved_at = ?", (then,))
+    conn.close()
+
+
 def test_new_articles_notice(settings: Settings, client: TestClient) -> None:
+    age_articles(settings)
     html = client.get("/").text
-    m = re.search(r'hx-get="/fragments/new\?since=(\d+)"', html)
+    m = re.search(r'hx-get="/fragments/new\?since=(\d{14})"', html)
     assert m, "feed polls for new articles"
     assert 'hx-trigger="every 120s"' in html
     since = m.group(1)
@@ -322,7 +333,7 @@ def test_new_articles_notice(settings: Settings, client: TestClient) -> None:
     tagged = client.get(f"/fragments/new?since={since}&tag=housing").text
     assert "1 new article · Show" in tagged and 'href="/?tag=housing"' in tagged
     assert client.get(f"/fragments/new?since={since}&country=US").text.strip() == ""
-    for bad in ("", "abc", "-1", "9" * 20):
+    for bad in ("", "abc", "-1", "9" * 20, "20261399999999"):
         assert client.get(f"/fragments/new?since={bad}").text.strip() == ""
 
 
@@ -368,3 +379,52 @@ def test_balanced_mix_limits_busy_outlets(settings: Settings, client: TestClient
     one_outlet = client.get("/", params={"per": 100, "outlet": "cbc.ca"}).text
     assert len(titles(one_outlet)) == 58  # an outlet's own feed shows everything
     assert '<select name="mix"' not in one_outlet
+
+
+def test_new_articles_wait_for_their_date_check(settings: Settings) -> None:
+    """With date checking on, a new article appears once its publication date has been
+    checked (or after the hold), and the new-articles notice counts it when it does."""
+    from newsroom.db import connect
+
+    age_articles(settings)
+    hold = replace(settings, contact_email="x@example.org", pubdate_hold_minutes=15)
+    client = TestClient(create_app(hold))
+    html = client.get("/").text
+    since = re.search(r"since=(\d{14})", html).group(1)  # type: ignore[union-attr]
+
+    conn = connect(settings.db_path)
+    run_ingest(
+        conn,
+        FakeSource([QueryResult("q", [rec("https://cbc.ca/fresh", "Fresh council vote", NOW)])]),
+        Tagger(TAGS),
+        now=NOW + timedelta(minutes=15),
+    )
+    assert "Fresh council vote" not in client.get("/").text  # waiting for its date check
+    assert client.get(f"/fragments/new?since={since}").text.strip() == ""
+
+    checked = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    conn.execute(
+        "UPDATE articles SET pubdate_checked_at = ?, outlet_published_at = ?"
+        " WHERE url = 'https://cbc.ca/fresh'",
+        (checked, "2026-09-24T15:50:00Z"),
+    )
+    assert "Fresh council vote" in client.get("/").text  # shown, with its date
+    assert "1 new article" in client.get(f"/fragments/new?since={since}").text
+
+    # a page that can't be checked still shows up once the hold is over
+    run_ingest(
+        conn,
+        FakeSource([QueryResult("q", [rec("https://cbc.ca/slow", "Slow site story", NOW)])]),
+        Tagger(TAGS),
+        now=NOW + timedelta(minutes=30),
+    )
+    assert "Slow site story" not in client.get("/").text
+    old = (datetime.now(UTC) - timedelta(minutes=16)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    conn.execute("UPDATE articles SET retrieved_at = ? WHERE url = 'https://cbc.ca/slow'", (old,))
+    assert "Slow site story" in client.get("/").text
+    conn.close()
+
+
+def test_no_hold_when_dates_are_not_checked(settings: Settings, client: TestClient) -> None:
+    add_articles(settings, 1)  # collected just now, never date-checked
+    assert "Bulk story 000" in client.get("/", params={"mix": "all"}).text

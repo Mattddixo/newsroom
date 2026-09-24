@@ -15,7 +15,7 @@ import sqlite3
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from newsroom.net.safe_fetch import FetchBlocked, FetchResult
 from newsroom.services.ingest import parse_ts, ts
@@ -52,7 +52,10 @@ def refresh_pub_dates(
     min_interval: float = 1.0,
     sleep: Callable[[float], None] = time.sleep,
     clock: Callable[[], float] = time.monotonic,
+    wall_clock: Callable[[], datetime] = lambda: datetime.now(UTC),
 ) -> PubDateSummary:
+    """Check up to `limit` recent undated articles, newest first. Each article is stamped
+    with the moment it was checked (the feed shows new articles from then on)."""
     summary = PubDateSummary()
     rows = conn.execute(
         "SELECT a.id, a.url, a.published_at, o.domain FROM articles a"
@@ -65,14 +68,13 @@ def refresh_pub_dates(
     ).fetchall()
     skip_hosts: set[str] = set()
     last_request: float | None = None
-    stamp = ts(now)
 
     def record(article_id: int, attempts: str, when: str | None, method: str | None) -> None:
         conn.execute(
             f"UPDATE articles SET pubdate_attempts = {attempts},"  # noqa: S608 - fixed SQL
             " pubdate_checked_at = ?, outlet_published_at = ?, pubdate_method = ?"
             " WHERE id = ?",
-            (stamp, when, method, article_id),
+            (ts(wall_clock()), when, method, article_id),
         )
 
     for row in rows:

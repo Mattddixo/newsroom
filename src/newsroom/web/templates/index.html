@@ -113,10 +113,10 @@
   <p class="empty">No articles yet. Check back in a few minutes.</p>
   {% endif %}
 {% else %}
-  {% if page.page == 1 and filters.sort == "newest" and not filters.q %}
+  {% if page.page == 1 and filters.sort == "newest" and not filters.q and since %}
   {#- Checks every 2 minutes; never reloads the page by itself. #}
   <div class="new-articles" aria-live="polite"
-       hx-get="/fragments/new?{{ filters.filter_params() | qs }}{{ '&' if filters.filter_params() }}{% if filters.mix != 'balanced' %}mix={{ filters.mix }}&{% endif %}since={{ latest_id }}"
+       hx-get="/fragments/new?{{ filters.filter_params() | qs }}{{ '&' if filters.filter_params() }}{% if filters.mix != 'balanced' %}mix={{ filters.mix }}&{% endif %}since={{ since }}"
        hx-trigger="every 120s" hx-swap="innerHTML" hx-disinherit="*"></div>
   {% endif %}
   {% for group in page.groups %}

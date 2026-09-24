@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 import sqlite3
 from dataclasses import dataclass, field
-from datetime import date, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from itertools import groupby
 from zoneinfo import ZoneInfo
 
@@ -206,12 +206,46 @@ class FeedPage:
         return out
 
 
+@dataclass(frozen=True)
+class Visibility:
+    """When an article appears in the feed. With a hold, a new article waits until its
+    publication date has been checked, or `hold` has passed since it was collected,
+    whichever comes first; so it is shown with the right date from the start.
+
+    Visible at time T: collected before T, and (date checked before T, or collected more
+    than `hold` before T). Checked and collected times are real clock times, so "became
+    visible after T" (the new-articles notice) is exact whatever order things happened in.
+    """
+
+    hold: timedelta = timedelta(0)
+
+    def at(self, when: datetime, *, strict: bool = False) -> tuple[str, list[object]]:
+        """SQL condition: visible at `when`. `strict` compares with < (for "was it already
+        visible when the page was drawn": same-second cases count as new, not as missed)."""
+        op = "<" if strict else "<="
+        t = ts(when)
+        if not self.hold:
+            return f"a.retrieved_at {op} ?", [t]
+        return (
+            f"(a.retrieved_at {op} ? AND (coalesce(a.pubdate_checked_at, '9999') {op} ?"
+            f" OR a.retrieved_at {op} ?))",
+            [t, t, ts(when - self.hold)],
+        )
+
+
 def _conditions(
-    f: FeedFilters, tz: ZoneInfo, with_query: bool = True
+    f: FeedFilters,
+    tz: ZoneInfo,
+    with_query: bool = True,
+    visible: tuple[str, list[object]] | None = None,
 ) -> tuple[list[str], list[object]] | None:
-    """SQL conditions for the filters (fixed strings, values bound). None = matches nothing."""
+    """SQL conditions for the filters (fixed strings, values bound). None = matches nothing.
+    `visible`: an extra condition from Visibility.at()."""
     where: list[str] = []
     args: list[object] = []
+    if visible:
+        where.append(visible[0])
+        args.extend(visible[1])
     if f.q and with_query:
         match = fts_query(f.q)
         if not match:
@@ -259,30 +293,32 @@ def _cap(source: str, where: list[str], args: list[object], cap: int) -> tuple[s
     return sql, [*args, cap]
 
 
-def latest_id(conn: sqlite3.Connection) -> int:
-    return conn.execute("SELECT coalesce(max(id), 0) FROM articles").fetchone()[0]
-
-
 def count_new(
     conn: sqlite3.Connection,
     f: FeedFilters,
     tz: ZoneInfo,
-    since_id: int,
+    since: datetime,
     cap: int = DEFAULT_OUTLET_CAP,
+    visibility: Visibility | None = None,
+    now: datetime | None = None,
 ) -> int:
-    """Articles added after `since_id` (insertion order) that match the filters (and,
-    in the balanced mix, would be shown)."""
-    cond = _conditions(f, tz)
+    """Articles that match the filters and are visible now but weren't at `since` (when
+    the page was drawn). In the balanced mix, only those the cap would show."""
+    now = now or datetime.now(UTC)
+    visibility = visibility or Visibility()
+    cond = _conditions(f, tz, visible=visibility.at(now))
     if cond is None:
         return 0
     where, args = cond
     source = " FROM articles a JOIN outlets o ON o.id = a.outlet_id"
-    if f.balanced:
+    if f.balanced:  # the cap applies to everything visible now, as in the feed itself
         capped, cap_args = _cap(source, where, args, cap)
         where, args = [*where, capped], [*args, *cap_args]
-    clause = " AND ".join(["a.id > ?", *where])
+    then, then_args = visibility.at(since, strict=True)
+    where, args = [*where, f"NOT {then}"], [*args, *then_args]
+    clause = " AND ".join(where)
     sql = f"SELECT count(*){source} WHERE {clause}"
-    return conn.execute(sql, [since_id, *args]).fetchone()[0]
+    return conn.execute(sql, args).fetchone()[0]
 
 
 ORDERS = {
@@ -299,10 +335,16 @@ SELECT_COLUMNS = (
 
 
 def feed(
-    conn: sqlite3.Connection, f: FeedFilters, tz: ZoneInfo, cap: int = DEFAULT_OUTLET_CAP
+    conn: sqlite3.Connection,
+    f: FeedFilters,
+    tz: ZoneInfo,
+    cap: int = DEFAULT_OUTLET_CAP,
+    visibility: Visibility | None = None,
+    now: datetime | None = None,
 ) -> FeedPage:
     relevance = f.sort == "relevance" and bool(f.q)
-    cond = _conditions(f, tz, with_query=not relevance)
+    visible = visibility.at(now or datetime.now(UTC)) if visibility else None
+    cond = _conditions(f, tz, with_query=not relevance, visible=visible)
     match = fts_query(f.q) if relevance else ""
     if cond is None or (relevance and not match):
         return FeedPage([], 0, 1, f.per)

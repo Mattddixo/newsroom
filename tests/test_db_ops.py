@@ -217,3 +217,38 @@ def test_job_kinds_have_independent_locks(tmp_path: Path) -> None:
             pass  # a long ingest doesn't block the others
         with pytest.raises(IngestBusy, match="ingest"), ingest_lock(s.lock_path("ingest")):
             pass
+
+
+@pytest.mark.parametrize(("inserted", "expected"), [(3, 1), (0, 0)])
+def test_new_articles_are_dated_straight_after_ingest(
+    monkeypatch: pytest.MonkeyPatch, inserted: int, expected: int
+) -> None:
+    from types import SimpleNamespace
+
+    from newsroom import worker
+    from newsroom.settings import Settings
+
+    calls: list[float] = []
+    monkeypatch.setattr(
+        worker.jobs, "ingest_articles", lambda s, wait: SimpleNamespace(inserted=inserted)
+    )
+    monkeypatch.setattr(worker.jobs, "publication_dates", lambda s, wait: calls.append(wait))
+    worker.run_ingest(Settings())
+    assert len(calls) == expected
+
+
+def test_date_check_after_ingest_skips_quietly_if_one_is_running(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from types import SimpleNamespace
+
+    from newsroom import worker
+    from newsroom.services.ingest import IngestBusy
+    from newsroom.settings import Settings
+
+    def busy(s: object, wait: float) -> None:
+        raise IngestBusy("a pass is running")
+
+    monkeypatch.setattr(worker.jobs, "ingest_articles", lambda s, wait: SimpleNamespace(inserted=5))
+    monkeypatch.setattr(worker.jobs, "publication_dates", busy)
+    worker.run_ingest(Settings())  # no exception: the running pass or the next one covers it

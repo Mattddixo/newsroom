@@ -237,8 +237,9 @@ def test_balanced_mix_caps_a_busy_outlet(world: tuple[sqlite3.Connection, list[d
     assert queries.feed(conn, everything, TZ, CAP).hidden == 0
     one_outlet = queries.FeedFilters(outlet="cbc.ca", per=100)
     assert queries.feed(conn, one_outlet, TZ, CAP).hidden == 0  # an outlet's own feed: all
-    new_all = queries.count_new(conn, everything, TZ, 0, CAP)
-    new_balanced = queries.count_new(conn, balanced, TZ, 0, CAP)
+    long_ago = datetime(2000, 1, 1, tzinfo=UTC)  # page drawn before anything arrived
+    new_all = queries.count_new(conn, everything, TZ, long_ago, CAP)
+    new_balanced = queries.count_new(conn, balanced, TZ, long_ago, CAP)
     assert new_all == len(meta) and new_balanced == len(expected(meta, balanced))
 
 
@@ -263,3 +264,16 @@ def test_reversed_date_range_is_swapped(world: tuple[sqlite3.Connection, list[di
     backward = queries.FeedFilters.parse({"from": "2026-09-22", "to": "2026-09-20"})
     assert backward.date_from == forward.date_from and backward.date_to == forward.date_to
     assert queries.feed(conn, backward, TZ).total == queries.feed(conn, forward, TZ).total > 0
+
+
+def test_new_count_matches_what_the_balanced_feed_would_add(
+    world: tuple[sqlite3.Connection, list[dict]],
+) -> None:
+    """The notice counts articles the (capped) feed would show now but didn't before."""
+    conn, _ = world
+    f = queries.FeedFilters(per=100)
+    after = datetime.now(UTC) + timedelta(minutes=5)  # a page drawn after all of them
+    assert queries.count_new(conn, f, TZ, after, CAP, now=after) == 0
+    before = datetime(2000, 1, 1, tzinfo=UTC)
+    shown = queries.feed(conn, f, TZ, CAP).total
+    assert queries.count_new(conn, f, TZ, before, CAP) == shown

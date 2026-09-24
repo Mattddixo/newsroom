@@ -134,6 +134,7 @@ for Tailscale at boot.
 | `INGEST_SOURCE`           | `gkg`      | `gkg`: GDELT's 15-minute files (recommended). `doc`: the DOC 2.0 search API |
 | `INGEST_CATCHUP_HOURS`    | `6`        | After downtime or errors, how far back an outlet resumes (older gaps are skipped) |
 | `RETENTION_DAYS`  | `365`              | Articles older than this are deleted nightly (0 = keep forever) |
+| `PUBDATE_HOLD_MINUTES` | `15`          | New articles appear once their date is checked (usually within a minute), or after this long |
 | `FEED_OUTLET_CAP` | `3`                | Balanced feed: most articles shown per outlet per hour ("Show: Everything" shows all) |
 | `GDELT_GROUP_SIZE`| `8`                | Outlets per GDELT query                                      |
 | `GDELT_MIN_INTERVAL` | `20`            | Seconds to wait after each GDELT response (GDELT asks for ≥ 5 but refuses at 10) |
@@ -178,7 +179,8 @@ tracking parameters, fragments and trailing slashes.
 - **DOC API (optional):** `INGEST_SOURCE=doc` uses GDELT's search API instead. It refuses
   repeated requests from one address within about 20 s, so it waits `GDELT_MIN_INTERVAL`
   after each response and ends the run at the first refusal.
-- **Dates:** GDELT only reports when it first *saw* an article. Every 15 minutes the worker reads
+- **Dates:** GDELT only reports when it first *saw* an article. Right after each ingest that
+  brings in new articles (and again every 15 minutes, for retries) the worker reads
   the publication time from each new article's page metadata (schema.org `datePublished`,
   `article:published_time`, a few other standard tags) and cards show **Published …**. If the
   page gives no usable date, cards show **Seen …** (GDELT's time). Limits: articles from the
