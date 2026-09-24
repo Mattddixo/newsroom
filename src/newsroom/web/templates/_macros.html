@@ -57,3 +57,13 @@
 <p>Funding: {{ not_disclosed() }}</p>
 {% endif %}
 {%- endmacro %}
+
+
+{# Headline row: the title opens the article; the button opens it in a new tab.
+   Both go straight to the outlet, with no referrer and no opener. #}
+{% macro article_link(url, title, language) -%}
+<div class="headline">
+  <a class="title" href="{{ url }}" rel="noopener noreferrer"{% if language and language != "en" %} lang="{{ language }}"{% endif %}>{{ title }}</a>
+  <a class="open-new" href="{{ url }}" target="_blank" rel="noopener noreferrer" aria-label="Open in a new tab: {{ title }}">Open <span aria-hidden="true">↗</span></a>
+</div>
+{%- endmacro %}

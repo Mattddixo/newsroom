@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import chain as render_chain, not_disclosed, no_owner, funding %}
+{% from "_macros.html" import chain as render_chain, not_disclosed, no_owner, funding, article_link %}
 {% block title %}{{ outlet.display_name }} · newsroom{% endblock %}
 {% block content %}
 <h1>{% if outlet.logo_path %}<img class="logo-lg" src="/logos/{{ outlet.logo_path }}" alt="" width="32" height="32">{% endif %}{{ outlet.display_name }}</h1>
@@ -26,7 +26,7 @@
   {% if articles %}
   <ol class="articles compact">
     {% for r, when in articles %}
-    <li class="article"><a class="title" href="{{ r.url }}" target="_blank" rel="noopener noreferrer" aria-describedby="new-tab"{% if r.language and r.language != "en" %} lang="{{ r.language }}"{% endif %}>{{ r.title }}</a>
+    <li class="article">{{ article_link(r.url, r.title, r.language) }}
       <div class="meta"><time datetime="{{ when.isoformat() }}">{{ when.strftime('%Y-%m-%d %H:%M') }}</time></div></li>
     {% endfor %}
   </ol>

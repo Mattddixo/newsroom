@@ -237,18 +237,49 @@ button {
   border-bottom: 1px solid var(--line);
 }
 
-.article .title {
-  color: var(--fg);
-  font-weight: 550;
-  text-decoration: none;
+.headline {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
 }
 
-.article .title:hover {
+.article .title {
+  flex: 1;
+  color: var(--fg);
+  font-weight: 600;
+  font-size: 1.02rem;
   text-decoration: underline;
+  text-decoration-color: var(--line);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+}
+
+.article .title:hover,
+.article .title:focus-visible {
+  color: var(--accent);
+  text-decoration-color: currentColor;
 }
 
 .article .title:visited {
   color: var(--muted);
+}
+
+.open-new {
+  flex: none;
+  font-size: 0.75rem;
+  line-height: 1.6;
+  color: var(--accent);
+  text-decoration: none;
+  white-space: nowrap;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0.1rem 0.45rem;
+}
+
+.open-new:hover,
+.open-new:focus-visible {
+  border-color: var(--accent);
+  background: var(--surface);
 }
 
 .meta {

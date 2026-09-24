@@ -82,7 +82,11 @@ def test_date_grouping_uses_local_timezone(settings: Settings) -> None:
 
 def test_article_links_are_safe(client: TestClient) -> None:
     html = client.get("/").text
-    assert 'href="https://cbc.ca/a" target="_blank" rel="noopener noreferrer"' in html
+    assert '<a class="title" href="https://cbc.ca/a" rel="noopener noreferrer">' in html
+    assert (
+        '<a class="open-new" href="https://cbc.ca/a" target="_blank" rel="noopener noreferrer"'
+        in html
+    )
     assert "<script>alert" not in html
     assert "&lt;script&gt;alert(&#39;x&#39;)&lt;/script&gt; &amp; friends" in html
 
