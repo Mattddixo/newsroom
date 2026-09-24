@@ -64,6 +64,6 @@
 {% macro article_link(url, title, language) -%}
 <div class="headline">
   <a class="title" href="{{ url }}" rel="noopener noreferrer"{% if language and language != "en" %} lang="{{ language }}"{% endif %}>{{ title }}</a>
-  <a class="open-new" href="{{ url }}" target="_blank" rel="noopener noreferrer" aria-label="Open in a new tab: {{ title }}">Open <span aria-hidden="true">↗</span></a>
+  <a class="open-new" href="{{ url }}" target="_blank" rel="noopener noreferrer" aria-label="Open in a new tab: {{ title }}" title="Opens in a new tab. To open in the background instead, middle-click or Ctrl/⌘-click the headline.">Open <span aria-hidden="true">↗</span></a>
 </div>
 {%- endmacro %}
