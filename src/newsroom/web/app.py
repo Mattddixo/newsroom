@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -12,7 +13,13 @@ from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
+from fastapi.responses import (
+    FileResponse,
+    HTMLResponse,
+    PlainTextResponse,
+    RedirectResponse,
+    Response,
+)
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from limits import parse as parse_limit
@@ -26,11 +33,15 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from newsroom import __version__
 from newsroom.db import connect_readonly
 from newsroom.log import setup_logging
+from newsroom.ownership_view import Graph
 from newsroom.settings import Settings, get_settings
+from newsroom.sources.wikidata import QID_RE
 from newsroom.web import queries
 from newsroom.web.security import ReadOnlyMethodsMiddleware, SecurityHeadersMiddleware
 
 HERE = Path(__file__).resolve().parent
+LOGO_NAME = re.compile(r"^Q[1-9]\d{0,11}\.(png|jpg|gif|webp)$")
+LOGO_TYPES = {"png": "image/png", "jpg": "image/jpeg", "gif": "image/gif", "webp": "image/webp"}
 log = logging.getLogger(__name__)
 
 
@@ -49,6 +60,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     templates = Jinja2Templates(directory=HERE / "templates")
     templates.env.filters["qs"] = lambda params: urlencode(params)
     templates.env.globals["day_label"] = lambda d: _day_label(d, datetime.now(tz).date())
+    templates.env.filters["pct"] = lambda v: f"{v * 100:.4g}%"
     limiter = Limiter(key_func=get_remote_address, default_limits=[settings.rate_limit])
     search_limit = parse_limit(settings.search_rate_limit)
     app.state.limiter = limiter
@@ -97,12 +109,104 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 try:
                     context["page"] = queries.feed(conn, filters, tz)
                     context["options"] = queries.filter_options(conn)
+                    graph = Graph.load(conn)
+                    context["graph"] = graph
+                    context["owner_options"] = queries.owner_options(graph, queries.outlets(conn))
                     last = queries.last_ingest(conn)
                     context["last_ingest"] = last.astimezone(tz) if last else None
                 except sqlite3.OperationalError:
                     # Schema not migrated yet (worker still starting).
                     context["page"] = None
         return templates.TemplateResponse(request, "index.html", context)
+
+    @app.get("/about", response_class=HTMLResponse)
+    def about(request: Request) -> Response:
+        return templates.TemplateResponse(request, "about.html", {})
+
+    @app.get("/outlets", response_class=HTMLResponse)
+    def outlets_page(request: Request) -> Response:
+        with database() as conn:
+            if conn is None:
+                return templates.TemplateResponse(request, "outlets.html", {"rows": []})
+            graph = Graph.load(conn)
+            counts = queries.article_counts(conn, datetime.now(tz))
+            rows = [
+                (o, graph.summary(o["entity_id"]), counts.get(o["id"], (0, 0)))
+                for o in queries.outlets(conn)
+            ]
+        return templates.TemplateResponse(request, "outlets.html", {"rows": rows})
+
+    @app.get("/outlet/{domain}", response_class=HTMLResponse)
+    def outlet_page(request: Request, domain: str) -> Response:
+        with database() as conn:
+            outlet = queries.outlet(conn, domain) if conn else None
+            if conn is None or outlet is None:
+                raise StarletteHTTPException(404)
+            graph = Graph.load(conn)
+            node = graph.nodes.get(outlet["entity_id"]) if outlet["entity_id"] else None
+            context = {
+                "outlet": outlet,
+                "node": node,
+                "chain": graph.chain(node.id) if node else [],
+                "articles": [
+                    (r, queries.parse_ts(r["published_at"]).astimezone(tz))
+                    for r in queries.recent_articles(conn, outlet["id"])
+                ],
+            }
+        return templates.TemplateResponse(request, "outlet.html", context)
+
+    @app.get("/fragments/ownership/{domain}", response_class=HTMLResponse)
+    def ownership_fragment(request: Request, domain: str) -> Response:
+        with database() as conn:
+            outlet = queries.outlet(conn, domain) if conn else None
+            if conn is None or outlet is None:
+                raise StarletteHTTPException(404)
+            graph = Graph.load(conn)
+            node = graph.nodes.get(outlet["entity_id"]) if outlet["entity_id"] else None
+            context = {
+                "outlet": outlet,
+                "node": node,
+                "chain": graph.chain(node.id) if node else [],
+            }
+        return templates.TemplateResponse(request, "_ownership_panel.html", context)
+
+    @app.get("/owners", response_class=HTMLResponse)
+    def owners_page(request: Request) -> Response:
+        with database() as conn:
+            rows: list[queries.OwnerRow] = []
+            if conn is not None:
+                graph = Graph.load(conn)
+                counts = queries.article_counts(conn, datetime.now(tz))
+                rows = queries.owners(graph, queries.outlets(conn), counts)
+        return templates.TemplateResponse(request, "owners.html", {"rows": rows})
+
+    @app.get("/owner/{qid}", response_class=HTMLResponse)
+    def owner_page(request: Request, qid: str) -> Response:
+        if not QID_RE.match(qid):
+            raise StarletteHTTPException(404)
+        with database() as conn:
+            if conn is None:
+                raise StarletteHTTPException(404)
+            graph = Graph.load(conn)
+            node = graph.by_qid(qid)
+            if node is None:
+                raise StarletteHTTPException(404)
+            counts = queries.article_counts(conn, datetime.now(tz))
+            owned = queries.owned_outlets(graph, node.id, queries.outlets(conn), counts)
+            context = {"node": node, "chain": graph.chain(node.id), "owned": owned}
+        return templates.TemplateResponse(request, "owner.html", context)
+
+    @app.get("/logos/{name}")
+    def logo(name: str) -> Response:
+        m = LOGO_NAME.match(name)
+        path = settings.logo_dir / name
+        if not m or not path.is_file():
+            raise StarletteHTTPException(404)
+        return FileResponse(
+            path,
+            media_type=LOGO_TYPES[m.group(1)],
+            headers={"Cache-Control": "public, max-age=86400"},
+        )
 
     @app.exception_handler(RateLimitExceeded)
     async def rate_limited(request: Request, exc: RateLimitExceeded) -> Response:

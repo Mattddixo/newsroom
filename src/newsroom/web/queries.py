@@ -9,7 +9,9 @@ from datetime import date, datetime, time, timedelta
 from itertools import groupby
 from zoneinfo import ZoneInfo
 
+from newsroom.ownership_view import Graph
 from newsroom.services.ingest import parse_ts, ts
+from newsroom.sources.wikidata import QID_RE
 
 PAGE_SIZE = 50
 MAX_QUERY_LENGTH = 200
@@ -25,6 +27,7 @@ class FeedFilters:
     tag: str = ""
     outlet: str = ""
     country: str = ""
+    owner: str = ""
     date_from: date | None = None
     date_to: date | None = None
     before: tuple[str, int] | None = None
@@ -36,6 +39,7 @@ class FeedFilters:
         tag = params.get("tag", "").strip().lower()
         outlet = params.get("outlet", "").strip().lower()
         country = params.get("country", "").strip().upper()
+        owner = params.get("owner", "").strip().upper()
         before = None
         if m := _CURSOR.match(params.get("before", "")):
             before = (m.group(1), int(m.group(2)))
@@ -44,6 +48,7 @@ class FeedFilters:
             tag=tag if _SLUG.match(tag) else "",
             outlet=outlet if _DOMAIN.match(outlet) else "",
             country=country if re.fullmatch(r"[A-Z]{2}", country) else "",
+            owner=owner if QID_RE.match(owner) else "",
             date_from=_date(params.get("from", "")),
             date_to=_date(params.get("to", "")),
             before=before,
@@ -56,6 +61,7 @@ class FeedFilters:
             "tag": self.tag,
             "outlet": self.outlet,
             "country": self.country,
+            "owner": self.owner,
             "from": self.date_from.isoformat() if self.date_from else "",
             "to": self.date_to.isoformat() if self.date_to else "",
         }
@@ -97,6 +103,8 @@ class Article:
     published: datetime  # local time
     outlet_name: str
     outlet_domain: str
+    outlet_entity_id: int | None = None
+    logo_path: str | None = None
     tags: list[tuple[str, str]] = field(default_factory=list)  # (slug, label)
 
 
@@ -128,6 +136,14 @@ def feed(conn: sqlite3.Connection, f: FeedFilters, tz: ZoneInfo) -> FeedPage:
     if f.country:
         where.append("o.country = ?")
         args.append(f.country)
+    if f.owner:
+        where.append(
+            "o.entity_id IN (WITH RECURSIVE below(id) AS ("
+            " SELECT id FROM entities WHERE qid = ?"
+            " UNION SELECT e.child_entity_id FROM ownership_edges e"
+            " JOIN below ON e.parent_entity_id = below.id) SELECT id FROM below)"
+        )
+        args.append(f.owner)
     if f.tag:
         where.append(
             "EXISTS (SELECT 1 FROM article_tags at JOIN tags t ON t.id = at.tag_id"
@@ -147,7 +163,8 @@ def feed(conn: sqlite3.Connection, f: FeedFilters, tz: ZoneInfo) -> FeedPage:
     # `where` holds only the fixed clauses above; every value is a bound parameter.
     clause = " WHERE " + " AND ".join(where) if where else ""
     sql = (
-        "SELECT a.id, a.url, a.title, a.published_at, o.display_name, o.domain"  # noqa: S608
+        "SELECT a.id, a.url, a.title, a.published_at, o.display_name, o.domain,"  # noqa: S608
+        " o.entity_id, o.logo_path"
         f" FROM articles a JOIN outlets o ON o.id = a.outlet_id{clause}"
         " ORDER BY a.published_at DESC, a.id DESC LIMIT ?"
     )
@@ -163,6 +180,8 @@ def feed(conn: sqlite3.Connection, f: FeedFilters, tz: ZoneInfo) -> FeedPage:
             published=parse_ts(r["published_at"]).astimezone(tz),
             outlet_name=r["display_name"],
             outlet_domain=r["domain"],
+            outlet_entity_id=r["entity_id"],
+            logo_path=r["logo_path"],
         )
         for r in rows
     ]
@@ -207,3 +226,120 @@ def last_ingest(conn: sqlite3.Connection) -> datetime | None:
         "SELECT max(finished_at) FROM ingest_runs WHERE status IN ('ok', 'partial')"
     ).fetchone()
     return parse_ts(row[0]) if row and row[0] else None
+
+
+# ---------------------------------------------------------------- outlets & owners
+
+
+def article_counts(conn: sqlite3.Connection, now: datetime) -> dict[int, tuple[int, int]]:
+    """outlet id -> (all articles, articles in the last 30 days)."""
+    cutoff = ts(now - timedelta(days=30))
+    return {
+        r[0]: (r[1], r[2])
+        for r in conn.execute(
+            "SELECT outlet_id, count(*), sum(published_at >= ?) FROM articles GROUP BY outlet_id",
+            (cutoff,),
+        )
+    }
+
+
+def outlets(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    return conn.execute("SELECT * FROM outlets WHERE active = 1 ORDER BY display_name").fetchall()
+
+
+def outlet(conn: sqlite3.Connection, domain: str) -> sqlite3.Row | None:
+    if not _DOMAIN.match(domain):
+        return None
+    return conn.execute("SELECT * FROM outlets WHERE domain = ?", (domain,)).fetchone()
+
+
+@dataclass
+class OwnedOutlet:
+    outlet: sqlite3.Row
+    via: list[str]  # names of intermediate entities, top-down
+    total: int
+    recent: int
+
+
+def owned_outlets(
+    graph: Graph, entity_id: int, rows: list[sqlite3.Row], counts: dict[int, tuple[int, int]]
+) -> list[OwnedOutlet]:
+    paths = graph.descendants(entity_id)
+    out = []
+    for o in rows:
+        eid = o["entity_id"]
+        if eid is None:
+            continue
+        if eid == entity_id:
+            path: list[int] | None = [entity_id]
+        else:
+            path = paths.get(eid)
+        if path is None:
+            continue
+        via = [graph.nodes[i].name for i in path[1:-1]]
+        total, recent = counts.get(o["id"], (0, 0))
+        out.append(OwnedOutlet(o, via, total, recent or 0))
+    out.sort(key=lambda x: (-x.recent, -x.total, x.outlet["display_name"]))
+    return out
+
+
+@dataclass
+class OwnerRow:
+    qid: str
+    name: str
+    kind: str
+    country: str
+    outlets: int
+    recent: int
+
+
+def owners(
+    graph: Graph, rows: list[sqlite3.Row], counts: dict[int, tuple[int, int]]
+) -> list[OwnerRow]:
+    """Top-level owners (no recorded parent) of at least one outlet other than themselves."""
+    result = []
+    for node in graph.nodes.values():
+        if graph.up.get(node.id):
+            continue
+        owned = [
+            o
+            for o in owned_outlets(graph, node.id, rows, counts)
+            if o.outlet["entity_id"] != node.id
+        ]
+        if owned:
+            result.append(
+                OwnerRow(
+                    node.qid,
+                    node.name,
+                    node.kind,
+                    node.country,
+                    len(owned),
+                    sum(o.recent for o in owned),
+                )
+            )
+    result.sort(key=lambda r: (-r.outlets, -r.recent, r.name))
+    return result
+
+
+def owner_options(graph: Graph, rows: list[sqlite3.Row]) -> list[tuple[str, str]]:
+    """Entities that own at least one outlet (directly or indirectly), for the feed filter."""
+    outlet_entities = {o["entity_id"] for o in rows if o["entity_id"]}
+    options = {}
+    for eid in outlet_entities:
+        stack, seen = [eid], {eid}
+        while stack:
+            for e in graph.up.get(stack.pop(), []):
+                if e.parent not in seen:
+                    seen.add(e.parent)
+                    stack.append(e.parent)
+                    node = graph.nodes[e.parent]
+                    options[node.qid] = node.name
+    return sorted(options.items(), key=lambda kv: kv[1].casefold())
+
+
+def recent_articles(conn: sqlite3.Connection, outlet_id: int, limit: int = 20) -> list[sqlite3.Row]:
+    return conn.execute(
+        "SELECT url, title, published_at FROM articles WHERE outlet_id = ?"
+        " ORDER BY published_at DESC, id DESC LIMIT ?",
+        (outlet_id, limit),
+    ).fetchall()

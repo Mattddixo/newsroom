@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Owners · newsroom{% endblock %}
+{% block content %}
+<h1>Owners</h1>
+<p class="muted">Top-level owners of the outlets in this feed, with how many of those outlets each one owns directly or through subsidiaries. Only ownership recorded in public sources is included.</p>
+{% if not rows %}
+<p class="empty">No ownership records yet.</p>
+{% else %}
+<table class="data">
+  <thead><tr><th scope="col">Owner</th><th scope="col" class="num">Outlets</th><th scope="col" class="num">Articles, 30 days</th></tr></thead>
+  <tbody>
+  {% for r in rows %}
+  <tr>
+    <td><a href="/owner/{{ r.qid }}">{{ r.name }}</a>{% if r.kind or r.country %} <span class="muted">{{ r.kind }}{% if r.kind and r.country %}, {% endif %}{{ r.country }}</span>{% endif %}</td>
+    <td class="num">{{ r.outlets }}</td>
+    <td class="num">{{ r.recent }}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% endblock %}

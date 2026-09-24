@@ -1,0 +1,94 @@
+{
+ "head": {
+  "vars": [
+   "item",
+   "itemLabel",
+   "itemDescription",
+   "site"
+  ]
+ },
+ "results": {
+  "bindings": [
+   {
+    "item": {
+     "type": "uri",
+     "value": "http://www.wikidata.org/entity/Q1001"
+    },
+    "site": {
+     "type": "uri",
+     "value": "https://exampledaily.ca/"
+    },
+    "itemLabel": {
+     "xml:lang": "en",
+     "type": "literal",
+     "value": "Example Daily"
+    },
+    "itemDescription": {
+     "xml:lang": "en",
+     "type": "literal",
+     "value": "daily newspaper"
+    }
+   },
+   {
+    "item": {
+     "type": "uri",
+     "value": "http://www.wikidata.org/entity/Q1001"
+    },
+    "site": {
+     "type": "uri",
+     "value": "https://www.exampledaily.ca"
+    },
+    "itemLabel": {
+     "xml:lang": "en",
+     "type": "literal",
+     "value": "Example Daily"
+    }
+   },
+   {
+    "item": {
+     "type": "uri",
+     "value": "http://www.wikidata.org/entity/Q2001"
+    },
+    "site": {
+     "type": "uri",
+     "value": "https://twonames.ca/"
+    },
+    "itemLabel": {
+     "xml:lang": "en",
+     "type": "literal",
+     "value": "Two Names News"
+    }
+   },
+   {
+    "item": {
+     "type": "uri",
+     "value": "http://www.wikidata.org/entity/Q2002"
+    },
+    "site": {
+     "type": "uri",
+     "value": "http://twonames.ca"
+    },
+    "itemLabel": {
+     "xml:lang": "en",
+     "type": "literal",
+     "value": "Two Names Media"
+    }
+   },
+   {
+    "item": {
+     "type": "uri",
+     "value": "http://www.wikidata.org/entity/Q1008"
+    },
+    "site": {
+     "type": "uri",
+     "value": "https://unknownowner.com/"
+    },
+    "itemLabel": {
+     "xml:lang": "en",
+     "type": "literal",
+     "value": "Unknown Owner Weekly"
+    }
+   }
+  ]
+ }
+}

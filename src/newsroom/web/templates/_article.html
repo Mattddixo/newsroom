@@ -1,7 +1,10 @@
+{% from "_macros.html" import ownership_text %}
 <li class="article">
   <a class="title" href="{{ a.url }}" target="_blank" rel="noopener noreferrer">{{ a.title }}</a>
   <div class="meta">
-    <a class="outlet" href="/?{{ filters.params(outlet=a.outlet_domain) | qs }}">{{ a.outlet_name }}</a>
+    <a class="outlet" href="/outlet/{{ a.outlet_domain }}">
+      {%- if a.logo_path %}<img class="logo" src="/logos/{{ a.logo_path }}" alt="" width="16" height="16" loading="lazy">{% endif -%}
+      {{ a.outlet_name }}</a>
     <time datetime="{{ a.published.isoformat() }}">{{ a.published.strftime('%H:%M') }}</time>
     {% if a.tags %}
     <ul class="tags" aria-label="Tags">
@@ -11,4 +14,10 @@
     </ul>
     {% endif %}
   </div>
+  {% if graph %}
+  <details class="own" hx-get="/fragments/ownership/{{ a.outlet_domain }}" hx-trigger="toggle once" hx-target="find .own-panel" hx-swap="innerHTML">
+    <summary>{{ ownership_text(graph.summary(a.outlet_entity_id)) }}</summary>
+    <div class="own-panel"><a href="/outlet/{{ a.outlet_domain }}">Ownership details for {{ a.outlet_name }}</a></div>
+  </details>
+  {% endif %}
 </li>

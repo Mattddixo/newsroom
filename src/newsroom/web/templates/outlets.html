@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% from "_macros.html" import ownership_text %}
+{% block title %}Outlets · newsroom{% endblock %}
+{% block content %}
+<h1>Outlets</h1>
+{% if not rows %}
+<p class="empty">No outlets yet.</p>
+{% else %}
+<table class="data">
+  <thead><tr><th scope="col">Outlet</th><th scope="col">Ownership</th><th scope="col" class="num">Articles, 30 days</th></tr></thead>
+  <tbody>
+  {% for o, summary, counts in rows %}
+  <tr>
+    <td><a href="/outlet/{{ o.domain }}">{% if o.logo_path %}<img class="logo" src="/logos/{{ o.logo_path }}" alt="" width="16" height="16" loading="lazy">{% endif %}{{ o.display_name }}</a> <span class="muted">{{ o.country }}</span></td>
+    <td>{{ ownership_text(summary) }}</td>
+    <td class="num">{{ counts[1] or 0 }}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% endblock %}

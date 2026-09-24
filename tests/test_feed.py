@@ -154,7 +154,7 @@ def test_pagination(settings: Settings, monkeypatch: pytest.MonkeyPatch) -> None
 def test_tag_and_outlet_links_keep_filters(client: TestClient) -> None:
     html = client.get("/", params={"country": "CA"}).text
     assert 'href="/?tag=housing&amp;country=CA"' in html
-    assert 'href="/?outlet=cbc.ca&amp;country=CA"' in html
+    assert 'href="/outlet/cbc.ca"' in html
 
 
 def test_search_rate_limit(settings: Settings) -> None:

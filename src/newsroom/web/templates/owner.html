@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% from "_macros.html" import chain as render_chain %}
+{% block title %}{{ node.name }} · newsroom{% endblock %}
+{% block content %}
+<h1>{{ node.name }}</h1>
+<p class="muted">
+  {{- [node.description, node.kind, node.country] | select | join(" · ") -}}
+</p>
+<p class="src">
+  {% if node.website %}<a href="{{ node.website }}" target="_blank" rel="noopener noreferrer">Website</a> · {% endif %}
+  Source: <a href="{{ node.source_url }}" target="_blank" rel="noopener noreferrer">Wikidata {{ node.qid }}</a>, retrieved {{ node.retrieved_at[:10] }}
+</p>
+
+{% if chain %}
+<section aria-labelledby="up-h">
+  <h2 id="up-h">Ownership of {{ node.name }}</h2>
+  {{ render_chain(chain) }}
+</section>
+{% endif %}
+
+<section aria-labelledby="owned-h">
+  <h2 id="owned-h">Outlets in this feed</h2>
+  {% if owned %}
+  <table class="data">
+    <thead><tr><th scope="col">Outlet</th><th scope="col">Held through</th><th scope="col" class="num">Articles, 30 days</th><th scope="col" class="num">All articles</th></tr></thead>
+    <tbody>
+    {% for o in owned %}
+    <tr>
+      <td><a href="/outlet/{{ o.outlet.domain }}">{{ o.outlet.display_name }}</a></td>
+      <td>{% if o.outlet.entity_id == node.id %}<span class="muted">(this entity)</span>{% elif o.via %}{{ o.via | join(" → ") }}{% else %}<span class="muted">directly</span>{% endif %}</td>
+      <td class="num">{{ o.recent }}</td>
+      <td class="num">{{ o.total }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <p><a href="/?owner={{ node.qid }}">Articles from these outlets</a></p>
+  {% else %}
+  <p class="empty">No outlets in this feed are recorded as owned by {{ node.name }}.</p>
+  {% endif %}
+</section>
+{% endblock %}

@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}About · newsroom{% endblock %}
+{% block content %}
+<h1>About</h1>
+<p>This site lists news articles and shows who owns each outlet. Every ownership claim links to the public record it comes from. Nothing is inferred, estimated or rated.</p>
+
+<h2 id="not-disclosed">"Not publicly disclosed"</h2>
+<p>This means none of the public sources this site uses records an owner for the outlet: either the outlet has no Wikidata item, or its item states no "owned by" (P127) or "parent organization" (P749). It is a statement about the records, not a claim about the outlet.</p>
+
+<h2>How ownership is found</h2>
+<p>Each outlet's web domain is matched to a Wikidata item through its "official website" (P856). The site then follows "owned by" and "parent organization" upward, using only statements Wikidata marks as current: deprecated statements and statements with a past end date are ignored. Matches are checked by hand where needed, and records are refreshed weekly.</p>
+
+<h2>Sources</h2>
+<ul>
+  <li>Articles: <a href="https://www.gdeltproject.org/" target="_blank" rel="noopener noreferrer">The GDELT Project</a> (DOC 2.0 API). Headlines and links only; dates are when GDELT first saw each article.</li>
+  <li>Ownership: <a href="https://www.wikidata.org/" target="_blank" rel="noopener noreferrer">Wikidata</a>, available under CC0. Credited with thanks to its contributors.</li>
+  <li>Logos: <a href="https://commons.wikimedia.org/" target="_blank" rel="noopener noreferrer">Wikimedia Commons</a>. Each outlet page links to the file and its licence.</li>
+</ul>
+{% endblock %}

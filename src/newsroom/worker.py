@@ -56,6 +56,15 @@ def run_ingest(settings: Settings) -> None:
         log.exception("ingest failed")
 
 
+def run_ownership(settings: Settings) -> None:
+    try:
+        jobs.resolve_ownership(settings)
+    except IngestBusy:
+        log.info("ownership refresh skipped: another job holds the lock")
+    except Exception:
+        log.exception("ownership refresh failed")
+
+
 def run_prune(settings: Settings) -> None:
     try:
         jobs.prune(settings)
@@ -81,6 +90,14 @@ def build_scheduler(settings: Settings) -> BlockingScheduler:
         args=[settings],
         id="ingest",
         next_run_time=datetime.now().astimezone() + timedelta(seconds=30),
+    )
+    # Only outlets not checked within OWNERSHIP_REFRESH_DAYS are re-resolved on each run.
+    scheduler.add_job(
+        run_ownership,
+        IntervalTrigger(hours=6),
+        args=[settings],
+        id="ownership",
+        next_run_time=datetime.now().astimezone() + timedelta(minutes=3),
     )
     scheduler.add_job(
         run_prune,

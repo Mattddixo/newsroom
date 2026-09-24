@@ -1,0 +1,49 @@
+{
+ "entities": {
+  "Q11032": {
+   "id": "Q11032",
+   "labels": {
+    "en": {
+     "language": "en",
+     "value": "newspaper"
+    }
+   }
+  },
+  "Q16": {
+   "id": "Q16",
+   "labels": {
+    "en": {
+     "language": "en",
+     "value": "Canada"
+    }
+   }
+  },
+  "Q30": {
+   "id": "Q30",
+   "labels": {
+    "en": {
+     "language": "en",
+     "value": "United States"
+    }
+   }
+  },
+  "Q891723": {
+   "id": "Q891723",
+   "labels": {
+    "en": {
+     "language": "en",
+     "value": "public company"
+    }
+   }
+  },
+  "Q1331793": {
+   "id": "Q1331793",
+   "labels": {
+    "en": {
+     "language": "en",
+     "value": "media company"
+    }
+   }
+  }
+ }
+}

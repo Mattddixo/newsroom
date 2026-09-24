@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import sys
 import urllib.request
+from datetime import UTC, datetime
 
 from newsroom import __version__, jobs
 from newsroom.backup import backup
@@ -16,7 +17,12 @@ from newsroom.config import ConfigError, load_outlets, load_tags
 from newsroom.db import connect
 from newsroom.log import setup_logging
 from newsroom.migrate import migrate
+from newsroom.net.http import ApiError
+from newsroom.ownership_view import Graph
+from newsroom.services import ownership
+from newsroom.services.ingest import IngestBusy
 from newsroom.settings import get_settings
+from newsroom.sources.wikidata import WikidataSource
 
 
 def cmd_migrate(_: argparse.Namespace) -> int:
@@ -72,19 +78,150 @@ def cmd_outlets_list(_: argparse.Namespace) -> int:
     conn = connect(get_settings().db_path)
     try:
         rows = conn.execute(
-            "SELECT o.domain, o.display_name, o.country, o.language, o.active,"
-            " count(a.id) AS articles, max(a.published_at) AS latest"
-            " FROM outlets o LEFT JOIN articles a ON a.outlet_id = o.id"
-            " GROUP BY o.id ORDER BY o.domain"
+            "SELECT o.domain, o.display_name, o.active, o.match_status, o.wikidata_qid,"
+            " (SELECT count(*) FROM articles a WHERE a.outlet_id = o.id) AS articles"
+            " FROM outlets o ORDER BY o.domain"
         ).fetchall()
     finally:
         conn.close()
+    print(f"{'DOMAIN':<26} {'MATCH':<10} {'QID':<12} {'ARTICLES':>8}  NAME")
     for r in rows:
         state = "" if r["active"] else "  (inactive)"
         print(
-            f"{r['domain']:<28} {r['country']} {r['language']}  {r['articles']:>6}  "
-            f"{r['latest'] or '-':<20}  {r['display_name']}{state}"
+            f"{r['domain']:<26} {r['match_status']:<10} {r['wikidata_qid'] or '-':<12} "
+            f"{r['articles']:>8}  {r['display_name']}{state}"
         )
+    return 0
+
+
+def cmd_outlets_unmatched(_: argparse.Namespace) -> int:
+    conn = connect(get_settings().db_path)
+    try:
+        rows = conn.execute(
+            "SELECT id, domain, display_name, match_status FROM outlets"
+            " WHERE active = 1 AND match_status IN ('unmatched', 'ambiguous') ORDER BY domain"
+        ).fetchall()
+        if not rows:
+            print("Every active outlet has a Wikidata match (or a manual decision).")
+        for r in rows:
+            print(f"{r['domain']}  ({r['display_name']}): {r['match_status']}")
+            for c in conn.execute(
+                "SELECT qid, label, description FROM outlet_match_candidates"
+                " WHERE outlet_id = ? ORDER BY qid",
+                (r["id"],),
+            ):
+                print(f"    candidate {c['qid']:<12} {c['label']}  {c['description']}")
+    finally:
+        conn.close()
+    print("\nFix with: newsroom outlets set-qid <domain> <QID>   (or 'none' if no item exists)")
+    return 0
+
+
+def cmd_outlets_set_qid(args: argparse.Namespace) -> int:
+    settings = get_settings()
+    qid = None if args.qid.lower() == "none" else args.qid.upper()
+    conn = connect(settings.db_path)
+    try:
+        ownership.set_qid(conn, args.domain, qid, datetime.now(UTC))
+    finally:
+        conn.close()
+    print(f"{args.domain} -> {qid or 'no Wikidata item'} (manual). Resolving ownership...")
+    s = jobs.resolve_ownership(settings, [args.domain], rematch=False)
+    print(f"Done: {s.entities} entities, {s.edges} ownership links.")
+    return 0
+
+
+def cmd_outlets_confirm(args: argparse.Namespace) -> int:
+    conn = connect(get_settings().db_path)
+    try:
+        n = ownership.confirm(conn, args.domains or None)
+    finally:
+        conn.close()
+    print(f"Confirmed {n} automatic match(es).")
+    return 0
+
+
+def cmd_ownership_resolve(args: argparse.Namespace) -> int:
+    settings = get_settings()
+    domains = args.domains or None
+    if args.all:
+        conn = connect(settings.db_path)
+        try:
+            domains = [r[0] for r in conn.execute("SELECT domain FROM outlets WHERE active = 1")]
+        finally:
+            conn.close()
+    s = jobs.resolve_ownership(settings, domains)
+    print(
+        f"{s.outlets} outlet(s): {s.matched} matched, {s.ambiguous} ambiguous, "
+        f"{s.unmatched} unmatched; {s.entities} entities, {s.edges} ownership links."
+    )
+    return 0
+
+
+def cmd_ownership_show(args: argparse.Namespace) -> int:
+    conn = connect(get_settings().db_path)
+    try:
+        outlet = conn.execute("SELECT * FROM outlets WHERE domain = ?", (args.domain,)).fetchone()
+        if outlet is None:
+            print(f"Unknown outlet: {args.domain}")
+            return 1
+        graph = Graph.load(conn)
+    finally:
+        conn.close()
+    print(f"{outlet['display_name']} ({outlet['domain']})")
+    print(f"  match: {outlet['match_status']} {outlet['wikidata_qid'] or ''}")
+    node = graph.nodes.get(outlet["entity_id"]) if outlet["entity_id"] else None
+    if node is None:
+        print("  ownership: Not publicly disclosed (no Wikidata item)")
+        return 0
+    print(f"  item: {node.name} [{node.qid}]  {node.source_url}")
+
+    def show(steps: list, depth: int) -> None:
+        for step in steps:
+            share = f" ({step.edge.share:.0%})" if step.edge.share else ""
+            note = "  [cycle]" if step.cycle else ""
+            print(
+                f"{'  ' * depth}- {step.edge.label}: {step.parent.name} [{step.parent.qid}]"
+                f"{share}{note}  source: {step.edge.source_url} ({step.edge.retrieved_at[:10]})"
+            )
+            show(step.above, depth + 1)
+
+    chain = graph.chain(node.id)
+    if chain:
+        show(chain, 2)
+    else:
+        print("    Owner: Not publicly disclosed (no owner recorded on Wikidata)")
+    return 0
+
+
+def cmd_ownership_add_edge(args: argparse.Namespace) -> int:
+    settings = get_settings()
+    client = jobs.wikidata_client(settings)
+    conn = connect(settings.db_path)
+    try:
+        ownership.add_manual_edge(
+            conn,
+            WikidataSource(client),
+            args.child.upper(),
+            args.parent.upper(),
+            args.relation,
+            args.source_url,
+            datetime.now(UTC),
+        )
+    finally:
+        conn.close()
+        client.close()
+    print(f"Added manual edge {args.child} -> {args.parent} ({args.relation}).")
+    return 0
+
+
+def cmd_ownership_remove_edge(args: argparse.Namespace) -> int:
+    conn = connect(get_settings().db_path)
+    try:
+        n = ownership.remove_manual_edge(conn, args.child.upper(), args.parent.upper())
+    finally:
+        conn.close()
+    print(f"Removed {n} manual edge(s).")
     return 0
 
 
@@ -136,9 +273,42 @@ def build_parser() -> argparse.ArgumentParser:
     outlets = sub.add_parser("outlets", help="outlet tools").add_subparsers(
         dest="outlets_cmd", required=True
     )
-    outlets.add_parser("list", help="outlets with article counts").set_defaults(
+    outlets.add_parser("list", help="outlets, match status, article counts").set_defaults(
         func=cmd_outlets_list
     )
+    outlets.add_parser(
+        "unmatched", help="outlets without a Wikidata match, with candidates"
+    ).set_defaults(func=cmd_outlets_unmatched)
+    set_qid = outlets.add_parser("set-qid", help="pin an outlet to a Wikidata item")
+    set_qid.add_argument("domain")
+    set_qid.add_argument("qid", help="e.g. Q12345, or 'none' if no item exists")
+    set_qid.set_defaults(func=cmd_outlets_set_qid)
+    conf = outlets.add_parser("confirm", help="confirm automatic matches (all if none given)")
+    conf.add_argument("domains", nargs="*")
+    conf.set_defaults(func=cmd_outlets_confirm)
+
+    own = sub.add_parser("ownership", help="ownership tools").add_subparsers(
+        dest="ownership_cmd", required=True
+    )
+    resolve = own.add_parser(
+        "resolve", help="re-run ownership resolution (due outlets, given domains, or --all)"
+    )
+    resolve.add_argument("domains", nargs="*")
+    resolve.add_argument("--all", action="store_true", help="every active outlet, now")
+    resolve.set_defaults(func=cmd_ownership_resolve)
+    show = own.add_parser("show", help="print an outlet's ownership chain with sources")
+    show.add_argument("domain")
+    show.set_defaults(func=cmd_ownership_show)
+    add = own.add_parser("add-edge", help="record an ownership link missing from Wikidata")
+    add.add_argument("child", help="QID of the owned entity")
+    add.add_argument("parent", help="QID of the owner")
+    add.add_argument("--relation", choices=["owned_by", "parent_org"], default="owned_by")
+    add.add_argument("--source-url", required=True, help="public record supporting this link")
+    add.set_defaults(func=cmd_ownership_add_edge)
+    rm = own.add_parser("remove-edge", help="remove a manual ownership link")
+    rm.add_argument("child")
+    rm.add_argument("parent")
+    rm.set_defaults(func=cmd_ownership_remove_edge)
     health = sub.add_parser("healthcheck", help="exit 0 if healthy (container healthcheck)")
     health.add_argument("target", choices=["web", "worker"])
     health.set_defaults(func=cmd_healthcheck)
@@ -149,4 +319,9 @@ def main(argv: list[str] | None = None) -> None:
     args = build_parser().parse_args(argv)
     if args.command != "healthcheck":
         setup_logging(get_settings().log_level)
-    sys.exit(args.func(args))
+    try:
+        code = args.func(args)
+    except (ConfigError, LookupError, ValueError, IngestBusy, ApiError) as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        code = 2
+    sys.exit(code)

@@ -162,7 +162,7 @@ h1 {
 
 .filters-row + .filters-row {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(7.5rem, 1fr));
 }
 
 .filters select,
@@ -283,4 +283,116 @@ button {
 
 .pager {
   margin: 1.5rem 0;
+}
+
+/* ---- ownership ---- */
+.muted {
+  color: var(--muted);
+}
+
+.src {
+  display: block;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.logo,
+.logo-lg {
+  vertical-align: -0.2em;
+  margin-right: 0.35em;
+  object-fit: contain;
+  border-radius: 2px;
+}
+
+.logo-lg {
+  vertical-align: -0.25em;
+}
+
+.own {
+  font-size: 0.8rem;
+  margin-top: 0.2rem;
+}
+
+.own summary {
+  cursor: pointer;
+  color: var(--muted);
+  list-style-position: inside;
+  width: fit-content;
+}
+
+.own summary:hover {
+  color: var(--fg);
+}
+
+.own-panel {
+  margin: 0.4rem 0 0.2rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--surface);
+  border-radius: 4px;
+}
+
+.own-panel p {
+  margin: 0.2rem 0;
+}
+
+.chain {
+  margin: 0.3rem 0;
+  padding-left: 1.1rem;
+}
+
+.chain li {
+  margin: 0.3rem 0;
+}
+
+.chain .rel {
+  color: var(--muted);
+}
+
+.panel-more {
+  font-size: 0.78rem;
+}
+
+h2 {
+  font-size: 1.05rem;
+  margin: 1.5rem 0 0.5rem;
+}
+
+/* ---- tables ---- */
+table.data {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+table.data th,
+table.data td {
+  text-align: left;
+  padding: 0.4rem 0.5rem 0.4rem 0;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+
+table.data th {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+table.data .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.articles.compact .article {
+  padding: 0.35rem 0;
+}
+
+@media (max-width: 36rem) {
+  table.data th:nth-child(n + 4),
+  table.data td:nth-child(n + 4) {
+    display: none;
+  }
 }

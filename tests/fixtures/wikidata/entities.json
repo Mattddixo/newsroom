@@ -1,0 +1,612 @@
+{
+ "entities": {
+  "Q1001": {
+   "type": "item",
+   "id": "Q1001",
+   "labels": {
+    "en": {
+     "language": "en",
+     "value": "Example Daily"
+    }
+   },
+   "descriptions": {
+    "en": {
+     "language": "en",
+     "value": "daily newspaper"
+    }
+   },
+   "claims": {
+    "P31": [
+     {
+      "mainsnak": {
+       "snaktype": "value",
+       "datavalue": {
+        "value": {
+         "entity-type": "item",
+         "id": "Q11032"
+        },
+        "type": "wikibase-entityid"
+       },
+       "property": "P31"
+      },
+      "type": "statement",
+      "rank": "normal",
+      "id": "x"
+     }
+    ],
+    "P17": [
+     {
+      "mainsnak": {
+       "snaktype": "value",
+       "datavalue": {
+        "value": {
+         "entity-type": "item",
+         "id": "Q16"
+        },
+        "type": "wikibase-entityid"
+       },
+       "property": "P17"
+      },
+      "type": "statement",
+      "rank": "normal",
+      "id": "x"
+     }
+    ],
+    "P856": [
+     {
+      "mainsnak": {
+       "snaktype": "value",
+       "datavalue": {
+        "value": "https://exampledaily.ca/",
+        "type": "string"
+       },
+       "property": "P856"
+      },
+      "type": "statement",
+      "rank": "normal",
+      "id": "x"
+     }
+    ],
+    "P154": [
+     {
+      "mainsnak": {
+       "snaktype": "value",
+       "datavalue": {
+        "value": "Example Daily logo.svg",
+        "type": "string"
+       },
+       "property": "P154"
+      },
+      "type": "statement",
+      "rank": "normal",
+      "id": "x"
+     }
+    ],
+    "P127": [
+     {
+      "mainsnak": {
+       "snaktype": "value",
+       "datavalue": {
+        "value": {
+         "entity-type": "item",
+         "id": "Q1002"
+        },
+        "type": "wikibase-entityid"
+       },
+       "property": "P127"
+      },
+      "type": "statement",
+      "rank": "normal",
+      "id": "x"
+     },
+     {
+      "mainsnak": {
+       "snaktype": "value",
+       "datavalue": {
+        "value": {
+         "entity-type": "item",
+         "id": "Q1009"
+        },
+        "type": "wikibase-entityid"
+       },
+       "property": "P127"
+      },
+      "type": "statement",
+      "rank": "deprecated",
+      "id": "x"
+     },
+     {
+      "mainsnak": {
+       "snaktype": "value",
+       "datavalue": {
+        "value": {
+         "entity-type": "item",
+         "id": "Q1010"
+        },
+        "type": "wikibase-entityid"
+       },
+       "property": "P127"
+      },
+      "type": "statement",
+      "rank": "normal",
+      "id": "x",
+      "qualifiers": {
+       "P582": [
+        {
+         "snaktype": "value",
+         "datavalue": {
+          "value": {
+           "time": "+2015-06-01T00:00:00Z",
+           "precision": 11,
+           "timezone": 0,
+           "calendarmodel": "http://www.wikidata.org/entity/Q1985727"
+          },
+          "type": "time"
+         },
+         "property": "P582"
+        }
+       ]
+      }
+     }
+    ]
+   }
+  },
+  "Q1002": {
+   "type": "item",
+   "id": "Q1002",
+   "labels": {
+    "en": {
+     "language": "en",
+     "value": "Example Media Group"
+    }
+   },
+   "descriptions": {
+    "en": {
+     "language": "en",
+     "value": "media company"
+    }
+   },
+   "claims": {
+    "P31": [
+     {
+      "mainsnak": {
+       "snaktype": "value",
+       "datavalue": {
+        "value": {
+         "entity-type": "item",
+         "id": "Q1331793"
+        },
+        "type": "wikibase-entityid"
+       },
+       "property": "P31"
+      },
+      "type": "statement",
+      "rank": "normal",
+      "id": "x"
+     }
+    ],
+    "P17": [
+     {
+      "mainsnak": {
+       "snaktype": "value",
+       "datavalue": {
+        "value": {
+         "entity-type": "item",
+         "id": "Q16"
+        },
+        "type": "wikibase-entityid"
+       },
+       "property": "P17"
+      },
+      "type": "statement",
+      "rank": "normal",
+      "id": "x"
+     }
+    ],
+    "P749": [
+     {
+      "mainsnak": {
+       "snaktype": "value",
+       "datavalue": {
+        "value": {
+         "entity-type": "item",
+         "id": "Q1003"
+        },
+        "type": "wikibase-entityid"
+       },
+       "property": "P749"
+      },
+      "type": "statement",
+      "rank": "normal",
+      "id": "x",
+      "qualifiers": {
+       "P1107": [
+        {
+         "snaktype": "value",
+         "datavalue": {
+          "value": {
+           "amount": "+0.6",
+           "unit": "1"
+          },
+          "type": "quantity"
+         },
+         "property": "P1107"
+        }
+       ],
+       "P580": [
+        {
+         "snaktype": "value",
+         "datavalue": {
+          "value": {
+           "time": "+2019-03-00T00:00:00Z",
+           "precision": 10,
+           "timezone": 0,
+           "calendarmodel": "http://www.wikidata.org/entity/Q1985727"
+          },
+          "type": "time"
+         },
+         "property": "P580"
+        }
+       ]
+      }
+     }
+    ],
+    "P127": [
+     {
+      "mainsnak": {
+       "snaktype": "value",
+       "datavalue": {
+        "value": {
+         "entity-type": "item",
+         "id": "Q1004"
+        },
+        "type": "wikibase-entityid"
+       },
+       "property": "P127"
+      },
+      "type": "statement",
+      "rank": "preferred",
+      "id": "x"
+     },
+     {
+      "mainsnak": {
+       "snaktype": "value",
+       "datavalue": {
+        "value": {
+         "entity-type": "item",
+         "id": "Q1005"
+        },
+        "type": "wikibase-entityid"
+       },
+       "property": "P127"
+      },
+      "type": "statement",
+      "rank": "normal",
+      "id": "x"
+     }
+    ]
+   }
+  },
+  "Q1003": {
+   "type": "item",
+   "id": "Q1003",
+   "labels": {
+    "en": {
+     "language": "en",
+     "value": "Example Holdings Inc."
+    }
+   },
+   "descriptions": {
+    "en": {
+     "language": "en",
+     "value": "holding company"
+    }
+   },
+   "claims": {
+    "P31": [
+     {
+      "mainsnak": {
+       "snaktype": "value",
+       "datavalue": {
+        "value": {
+         "entity-type": "item",
+         "id": "Q891723"
+        },
+        "type": "wikibase-entityid"
+       },
+       "property": "P31"
+      },
+      "type": "statement",
+      "rank": "normal",
+      "id": "x"
+     }
+    ],
+    "P17": [
+     {
+      "mainsnak": {
+       "snaktype": "value",
+       "datavalue": {
+        "value": {
+         "entity-type": "item",
+         "id": "Q30"
+        },
+        "type": "wikibase-entityid"
+       },
+       "property": "P17"
+      },
+      "type": "statement",
+      "rank": "normal",
+      "id": "x"
+     }
+    ],
+    "P5531": [
+     {
+      "mainsnak": {
+       "snaktype": "value",
+       "datavalue": {
+        "value": "0000123456",
+        "type": "string"
+       },
+       "property": "P5531"
+      },
+      "type": "statement",
+      "rank": "normal",
+      "id": "x"
+     }
+    ],
+    "P856": [
+     {
+      "mainsnak": {
+       "snaktype": "value",
+       "datavalue": {
+        "value": "javascript:alert(1)",
+        "type": "string"
+       },
+       "property": "P856"
+      },
+      "type": "statement",
+      "rank": "normal",
+      "id": "x"
+     }
+    ]
+   }
+  },
+  "Q1004": {
+   "type": "item",
+   "id": "Q1004",
+   "labels": {
+    "en": {
+     "language": "en",
+     "value": "Example Family Trust"
+    }
+   },
+   "descriptions": {},
+   "claims": {
+    "P127": [
+     {
+      "mainsnak": {
+       "snaktype": "value",
+       "datavalue": {
+        "value": {
+         "entity-type": "item",
+         "id": "Q1002"
+        },
+        "type": "wikibase-entityid"
+       },
+       "property": "P127"
+      },
+      "type": "statement",
+      "rank": "normal",
+      "id": "x"
+     }
+    ]
+   }
+  },
+  "Q1005": {
+   "type": "item",
+   "id": "Q1005",
+   "labels": {
+    "en": {
+     "language": "en",
+     "value": "Ignored Co"
+    }
+   },
+   "descriptions": {},
+   "claims": {}
+  },
+  "Q1008": {
+   "type": "item",
+   "id": "Q1008",
+   "labels": {
+    "en": {
+     "language": "en",
+     "value": "Unknown Owner Weekly"
+    }
+   },
+   "descriptions": {},
+   "claims": {
+    "P127": [
+     {
+      "mainsnak": {
+       "snaktype": "somevalue",
+       "property": "P127"
+      },
+      "type": "statement",
+      "rank": "normal"
+     }
+    ],
+    "P1297": [
+     {
+      "mainsnak": {
+       "snaktype": "value",
+       "datavalue": {
+        "value": "12-3456789",
+        "type": "string"
+       },
+       "property": "P1297"
+      },
+      "type": "statement",
+      "rank": "normal",
+      "id": "x"
+     }
+    ]
+   }
+  },
+  "Q1011": {
+   "type": "item",
+   "id": "Q1011",
+   "labels": {
+    "en": {
+     "language": "en",
+     "value": "Le Quotidien Exemple"
+    },
+    "fr": {
+     "language": "fr",
+     "value": "Le Quotidien Exemple"
+    }
+   },
+   "descriptions": {},
+   "claims": {
+    "P127": [
+     {
+      "mainsnak": {
+       "snaktype": "value",
+       "datavalue": {
+        "value": {
+         "entity-type": "item",
+         "id": "Q1012"
+        },
+        "type": "wikibase-entityid"
+       },
+       "property": "P127"
+      },
+      "type": "statement",
+      "rank": "normal",
+      "id": "x",
+      "qualifiers": {
+       "P582": [
+        {
+         "snaktype": "value",
+         "datavalue": {
+          "value": {
+           "time": "+2999-01-01T00:00:00Z",
+           "precision": 9,
+           "timezone": 0,
+           "calendarmodel": "http://www.wikidata.org/entity/Q1985727"
+          },
+          "type": "time"
+         },
+         "property": "P582"
+        }
+       ]
+      }
+     }
+    ]
+   }
+  },
+  "Q1012": {
+   "type": "item",
+   "id": "Q1012",
+   "labels": {
+    "en": {
+     "language": "en",
+     "value": "Future-Ended Owner"
+    }
+   },
+   "descriptions": {},
+   "claims": {}
+  },
+  "Q1007": {
+   "id": "Q1007",
+   "missing": ""
+  }
+ },
+ "redirected_Q1006": {
+  "type": "item",
+  "id": "Q1003",
+  "labels": {
+   "en": {
+    "language": "en",
+    "value": "Example Holdings Inc."
+   }
+  },
+  "descriptions": {
+   "en": {
+    "language": "en",
+    "value": "holding company"
+   }
+  },
+  "claims": {
+   "P31": [
+    {
+     "mainsnak": {
+      "snaktype": "value",
+      "datavalue": {
+       "value": {
+        "entity-type": "item",
+        "id": "Q891723"
+       },
+       "type": "wikibase-entityid"
+      },
+      "property": "P31"
+     },
+     "type": "statement",
+     "rank": "normal",
+     "id": "x"
+    }
+   ],
+   "P17": [
+    {
+     "mainsnak": {
+      "snaktype": "value",
+      "datavalue": {
+       "value": {
+        "entity-type": "item",
+        "id": "Q30"
+       },
+       "type": "wikibase-entityid"
+      },
+      "property": "P17"
+     },
+     "type": "statement",
+     "rank": "normal",
+     "id": "x"
+    }
+   ],
+   "P5531": [
+    {
+     "mainsnak": {
+      "snaktype": "value",
+      "datavalue": {
+       "value": "0000123456",
+       "type": "string"
+      },
+      "property": "P5531"
+     },
+     "type": "statement",
+     "rank": "normal",
+     "id": "x"
+    }
+   ],
+   "P856": [
+    {
+     "mainsnak": {
+      "snaktype": "value",
+      "datavalue": {
+       "value": "javascript:alert(1)",
+       "type": "string"
+      },
+      "property": "P856"
+     },
+     "type": "statement",
+     "rank": "normal",
+     "id": "x"
+    }
+   ]
+  },
+  "redirects": {
+   "from": "Q1006",
+   "to": "Q1003"
+  }
+ }
+}

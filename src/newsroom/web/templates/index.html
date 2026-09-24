@@ -36,6 +36,16 @@
         {% endfor %}
       </select>
     </label>
+    {% if owner_options %}
+    <label>Owner
+      <select name="owner">
+        <option value="">All</option>
+        {% for qid, name in owner_options %}
+        <option value="{{ qid }}"{% if qid == filters.owner %} selected{% endif %}>{{ name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    {% endif %}
     <label>From <input type="date" name="from" value="{{ filters.date_from or '' }}"></label>
     <label>To <input type="date" name="to" value="{{ filters.date_to or '' }}"></label>
     {% if filters.active %}<a class="clear" href="/">Clear filters</a>{% endif %}

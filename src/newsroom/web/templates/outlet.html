@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% from "_macros.html" import chain as render_chain, not_disclosed %}
+{% block title %}{{ outlet.display_name }} · newsroom{% endblock %}
+{% block content %}
+<h1>{% if outlet.logo_path %}<img class="logo-lg" src="/logos/{{ outlet.logo_path }}" alt="" width="32" height="32">{% endif %}{{ outlet.display_name }}</h1>
+<p class="muted"><a href="https://{{ outlet.domain }}/" target="_blank" rel="noopener noreferrer">{{ outlet.domain }}</a> · {{ outlet.country }} · {{ outlet.language }}</p>
+
+<section aria-labelledby="own-h">
+  <h2 id="own-h">Ownership</h2>
+  {% if node %}
+  <p><a href="/owner/{{ node.qid }}">{{ node.name }}</a>{% if node.description %} <span class="muted">({{ node.description }})</span>{% endif %}
+    <span class="src">Source: <a href="{{ node.source_url }}" target="_blank" rel="noopener noreferrer">Wikidata {{ node.qid }}</a>, retrieved {{ node.retrieved_at[:10] }}.
+    Matched {% if outlet.match_status == "auto" %}automatically by official website{% elif outlet.match_status == "confirmed" %}by official website, confirmed by hand{% else %}by hand{% endif %}.</span></p>
+    {% if chain %}{{ render_chain(chain) }}{% else %}<p>Owner: {{ not_disclosed() }}</p>{% endif %}
+  {% else %}
+  <p>Owner: {{ not_disclosed() }}</p>
+  {% endif %}
+</section>
+
+<section aria-labelledby="art-h">
+  <h2 id="art-h">Recent articles</h2>
+  {% if articles %}
+  <ol class="articles compact">
+    {% for r, when in articles %}
+    <li class="article"><a class="title" href="{{ r.url }}" target="_blank" rel="noopener noreferrer">{{ r.title }}</a>
+      <div class="meta"><time datetime="{{ when.isoformat() }}">{{ when.strftime('%Y-%m-%d %H:%M') }}</time></div></li>
+    {% endfor %}
+  </ol>
+  <p><a href="/?outlet={{ outlet.domain }}">All articles from {{ outlet.display_name }}</a></p>
+  {% else %}
+  <p class="empty">No articles from this outlet yet.</p>
+  {% endif %}
+</section>
+
+{% if outlet.logo_source_url %}
+<p class="meta-note">Logo: <a href="{{ outlet.logo_source_url }}" target="_blank" rel="noopener noreferrer">Wikimedia Commons</a> (see the file page for its licence).</p>
+{% endif %}
+{% endblock %}

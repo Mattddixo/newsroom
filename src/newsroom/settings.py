@@ -44,6 +44,8 @@ class Settings:
     retention_days: int = 365
     gdelt_group_size: int = 8
     gdelt_min_interval: float = 6.0
+    ownership_refresh_days: int = 7
+    wikidata_min_interval: float = 1.0
 
     @property
     def db_path(self) -> Path:
@@ -86,6 +88,8 @@ def load_settings() -> Settings:
         retention_days=int(env.get("RETENTION_DAYS", "365")),
         gdelt_group_size=int(env.get("GDELT_GROUP_SIZE", "8")),
         gdelt_min_interval=float(env.get("GDELT_MIN_INTERVAL", "6")),
+        ownership_refresh_days=int(env.get("OWNERSHIP_REFRESH_DAYS", "7")),
+        wikidata_min_interval=float(env.get("WIKIDATA_MIN_INTERVAL", "1")),
     )
 
 

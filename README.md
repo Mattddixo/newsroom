@@ -5,8 +5,8 @@ where a public record exists, **who funds it**. Every ownership or funding claim
 to its source record. Where no public record exists, the page says
 "Not publicly disclosed". No bias ratings, no sentiment scores, no editorializing.
 
-> Status: **Phase 2 (articles).** Hourly GDELT ingestion, a feed grouped by day, tags,
-> filters and headline search are in place. Ownership (phase 3) and funding (phase 4) come next.
+> Status: **Phase 3 (ownership).** Articles from GDELT and ownership chains from Wikidata
+> are in place, with outlet and owner pages and a curation CLI. Funding (phase 4) comes next.
 
 ## How it runs
 
@@ -61,6 +61,8 @@ for Tailscale at boot.
 | `make retag`       | Recompute tags after editing `config/tags.yaml`                      |
 | `make config-check`| Validate `config/outlets.yaml` and `config/tags.yaml`                |
 | `make outlets`     | Outlets with article counts and latest article time                  |
+| `make unmatched`   | Outlets without a Wikidata match, with candidate items               |
+| `make ownership`   | Re-resolve ownership for every outlet now                            |
 | `make backup-db`   | Write a SQLite snapshot now                                          |
 | `make test`        | Lint + tests inside a throwaway build stage (no Python needed on the host) |
 | `make audit`       | `pip-audit` of the locked dependencies                               |
@@ -85,6 +87,7 @@ for Tailscale at boot.
 | `RETENTION_DAYS`  | `365`              | Articles older than this are deleted nightly (0 = keep forever) |
 | `GDELT_GROUP_SIZE`| `8`                | Outlets per GDELT query                                      |
 | `GDELT_MIN_INTERVAL` | `6`             | Seconds between GDELT requests (GDELT asks for ≥ 5)          |
+| `OWNERSHIP_REFRESH_DAYS` | `7`         | Re-check each outlet's Wikidata chain after this many days   |
 | `BACKUP_HOUR`     | `3`                | Local hour for the nightly snapshot                          |
 | `BACKUP_KEEP`     | `14`               | Snapshots to keep                                            |
 
@@ -112,6 +115,51 @@ tracking parameters, fragments and trailing slashes.
   retries, the run is marked `partial`, and the next run re-covers the same time window.
 - **Dates:** the date shown is GDELT's "first seen" time, usually minutes after publication.
 
+## Ownership
+
+Every 6 hours the worker re-checks outlets whose chain is more than `OWNERSHIP_REFRESH_DAYS`
+old. For each one it does the following:
+
+1. **Match** the domain to a Wikidata item by "official website" (P856), trying http and
+   https, with and without `www.`. Exactly one item gives an `auto` match. Several items give
+   `ambiguous`, and the candidates are stored for you to pick from. No item gives `unmatched`.
+   Matches that are `confirmed` or `manual` are never changed automatically.
+2. **Walk up** "owned by" (P127) and "parent organization" (P749) to the top, at most 10 levels.
+   Only statements Wikidata treats as current are used: no deprecated rank, preferred rank
+   wins, and no end date in the past. A stake percentage is shown only when Wikidata states
+   one (P1107). Loops are cut and flagged. Every link stores its Wikidata URL and retrieval
+   date, and the page links to it.
+3. **Cache the logo** (P154) from Wikimedia Commons as a small PNG, through the SSRF-guarded fetcher.
+
+Data is fetched first and written in a single transaction, so a failed refresh changes nothing.
+Wikidata calls need `CONTACT_EMAIL` set (Wikimedia's User-Agent policy). Without it the job
+logs an error and skips.
+
+Where no record exists, the site says **"Not publicly disclosed"**, linked to its definition
+on the About page.
+
+### Curating matches
+
+```bash
+make unmatched                                                    # what needs attention
+docker compose exec worker newsroom outlets set-qid twonames.ca Q12345   # pin to an item
+docker compose exec worker newsroom outlets set-qid tiny.news none       # no item exists
+docker compose exec worker newsroom outlets confirm cbc.ca ctvnews.ca    # lock auto matches
+docker compose exec worker newsroom outlets confirm                      # ...or all of them
+docker compose exec worker newsroom ownership show cbc.ca                # chain with sources
+docker compose exec worker newsroom ownership resolve cbc.ca             # refresh one now
+```
+
+If Wikidata lacks a link you can document, add it with its source, which is mandatory:
+
+```bash
+docker compose exec worker newsroom ownership add-edge Q111 Q222 \
+    --relation owned_by --source-url https://example.org/annual-report.pdf
+docker compose exec worker newsroom ownership remove-edge Q111 Q222
+```
+
+The better long-term fix is to add the statement to Wikidata itself, with a reference.
+
 ## CLI reference
 
 Run inside the worker: `docker compose exec worker newsroom <command>`.
@@ -122,7 +170,14 @@ Run inside the worker: `docker compose exec worker newsroom <command>`.
 | `retag`            | Recompute all tags from `tags.yaml`                            |
 | `prune`            | Delete articles older than `RETENTION_DAYS`                    |
 | `config check`     | Validate both YAML files                                       |
-| `outlets list`     | Outlets, article counts, latest article                        |
+| `outlets list`     | Outlets, match status, QID, article counts                     |
+| `outlets unmatched`| Unmatched/ambiguous outlets with candidate items               |
+| `outlets set-qid D Q` | Pin outlet D to item Q (or `none`), then resolve it         |
+| `outlets confirm [D...]` | Lock automatic matches (all if none given)               |
+| `ownership resolve [D...] [--all]` | Re-run resolution (due outlets by default)     |
+| `ownership show D` | Print an outlet's chain with source links                      |
+| `ownership add-edge C P --source-url URL` | Record a sourced link missing from Wikidata |
+| `ownership remove-edge C P` | Remove a manual link                                  |
 | `backup`           | Write a consistent SQLite snapshot now                         |
 | `migrate`          | Apply pending schema migrations (the worker does this on start) |
 
