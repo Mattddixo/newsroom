@@ -68,6 +68,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     templates.env.filters["qs"] = lambda params: urlencode(params)
     templates.env.globals["day_label"] = lambda d: _day_label(d, datetime.now(tz).date())
     templates.env.filters["pct"] = lambda v: f"{v * 100:.4g}%"
+    templates.env.filters["article_date"] = lambda d: _article_date(d, datetime.now(tz))
     templates.env.filters["money"] = _money
     templates.env.globals["page_url"] = lambda f, n: _feed_url(f.params(page=n))
     templates.env.filters["source_name"] = _source_name
@@ -314,6 +315,12 @@ OWNER_SORTS = {
 def _table_sort(request: Request, allowed: dict, default: str) -> str:
     value = request.query_params.get("sort", default)
     return value if value in allowed else default
+
+
+def _article_date(when: datetime, now: datetime) -> str:
+    """'Sep 23, 20:38'; the year is added for articles from another year."""
+    year = f" {when.year}" if when.year != now.year else ""
+    return f"{when:%b} {when.day}{year}, {when:%H:%M}"
 
 
 def _feed_url(params: dict[str, str]) -> str:

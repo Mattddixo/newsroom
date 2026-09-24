@@ -27,7 +27,7 @@
   <ol class="articles compact">
     {% for r, when in articles %}
     <li class="article">{{ article_link(r.url, r.title, r.language) }}
-      <div class="meta"><time datetime="{{ when.isoformat() }}">{{ when.strftime('%Y-%m-%d %H:%M') }}</time></div></li>
+      <div class="meta"><time datetime="{{ when.isoformat() }}">{{ when | article_date }}</time></div></li>
     {% endfor %}
   </ol>
   <p><a href="/?outlet={{ outlet.domain }}">All articles from {{ outlet.display_name }}</a></p>

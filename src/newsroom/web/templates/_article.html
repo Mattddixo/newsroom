@@ -5,7 +5,7 @@
     <a class="outlet" href="/outlet/{{ a.outlet_domain }}">
       {%- if a.logo_path %}<img class="logo" src="/logos/{{ a.logo_path }}" alt="" width="16" height="16" loading="lazy">{% endif -%}
       {{ a.outlet_name }}</a>
-    <time datetime="{{ a.published.isoformat() }}">{{ a.published.strftime('%H:%M') }}</time>
+    <time datetime="{{ a.published.isoformat() }}">{{ a.published | article_date }}</time>
     {% if a.tags %}
     <ul class="tags" aria-label="Tags">
       {% for slug, label in a.tags %}

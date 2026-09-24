@@ -328,3 +328,13 @@ def test_no_polling_on_search_or_older_pages(client: TestClient) -> None:
     assert "/fragments/new" not in client.get("/", params={"q": "housing"}).text
     html = client.get("/").text
     assert "every 15 minutes" in html  # meta note reflects the schedule
+
+
+def test_article_date_on_every_card(client: TestClient) -> None:
+    from newsroom.web.app import _article_date
+
+    html = client.get("/", params={"sort": "outlet"}).text  # no day headings in this sort
+    assert re.search(r'<time datetime="2026-09-2\dT[^"]+">Sep 2\d, \d\d:\d\d</time>', html)
+    now = datetime(2026, 9, 24, tzinfo=TZ)
+    assert _article_date(datetime(2026, 9, 3, 7, 5, tzinfo=TZ), now) == "Sep 3, 07:05"
+    assert _article_date(datetime(2025, 12, 31, 23, 59, tzinfo=TZ), now) == "Dec 31 2025, 23:59"
