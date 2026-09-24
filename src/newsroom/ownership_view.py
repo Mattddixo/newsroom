@@ -143,6 +143,20 @@ class Graph:
                     queue.append((e.child, [*path, e.child]))
         return paths
 
+    def lineage(self, entity_id: int | None) -> list[int]:
+        """The entity followed by everything above it, nearest first."""
+        if entity_id is None or entity_id not in self.nodes:
+            return []
+        order, queue, seen = [], [entity_id], {entity_id}
+        while queue:
+            current = queue.pop(0)
+            order.append(current)
+            for e in self.up.get(current, []):
+                if e.parent not in seen:
+                    seen.add(e.parent)
+                    queue.append(e.parent)
+        return order
+
     def summary(self, entity_id: int | None) -> Summary:
         if entity_id is None or entity_id not in self.nodes:
             return Summary(None, [], [])

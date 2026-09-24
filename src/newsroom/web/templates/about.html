@@ -5,7 +5,10 @@
 <p>This site lists news articles and shows who owns each outlet. Every ownership claim links to the public record it comes from. Nothing is inferred, estimated or rated.</p>
 
 <h2 id="not-disclosed">"Not publicly disclosed"</h2>
-<p>This means none of the public sources this site uses records an owner for the outlet: either the outlet has no Wikidata item, or its item states no "owned by" (P127) or "parent organization" (P749). It is a statement about the records, not a claim about the outlet.</p>
+<p>None of the public sources this site uses has a record for this. For ownership, it means the outlet could not be matched to a Wikidata item. For funding, it means no filing, registry entry or published figure was found for the outlet or its owners. It is a statement about the records, not a claim about the outlet.</p>
+
+<h2 id="no-owner-recorded">"No owner recorded"</h2>
+<p>The outlet has a Wikidata item, but that item states no current "owned by" (P127) or "parent organization" (P749). This is common for independent nonprofits and for organizations that are not owned by another entity; it may also mean the record is incomplete.</p>
 
 <h2>How ownership is found</h2>
 <p>Each outlet's web domain is matched to a Wikidata item through its "official website" (P856). The site then follows "owned by" and "parent organization" upward, using only statements Wikidata marks as current: deprecated statements and statements with a past end date are ignored. Matches are checked by hand where needed, and records are refreshed weekly.</p>
@@ -14,6 +17,10 @@
 <ul>
   <li>Articles: <a href="https://www.gdeltproject.org/" target="_blank" rel="noopener noreferrer">The GDELT Project</a> (DOC 2.0 API). Headlines and links only; dates are when GDELT first saw each article.</li>
   <li>Ownership: <a href="https://www.wikidata.org/" target="_blank" rel="noopener noreferrer">Wikidata</a>, available under CC0. Credited with thanks to its contributors.</li>
+  <li>Funding, public companies: <a href="https://www.sec.gov/edgar" target="_blank" rel="noopener noreferrer">SEC EDGAR</a>. Links to filings only; figures are not extracted.</li>
+  <li>Funding, US nonprofits: <a href="https://projects.propublica.org/nonprofits/" target="_blank" rel="noopener noreferrer">ProPublica Nonprofit Explorer</a>, from IRS Form 990 data.</li>
+  <li>Funding, Canadian registered charities: <a href="https://www.canada.ca/en/revenue-agency/services/charities-giving/list-charities.html" target="_blank" rel="noopener noreferrer">Canada Revenue Agency</a> charity listings.</li>
+  <li>Funding, public broadcasters: figures copied from their annual reports or government budget documents, each linked.</li>
   <li>Logos: <a href="https://commons.wikimedia.org/" target="_blank" rel="noopener noreferrer">Wikimedia Commons</a>. Each outlet page links to the file and its licence.</li>
 </ul>
 {% endblock %}

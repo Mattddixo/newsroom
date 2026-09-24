@@ -396,3 +396,25 @@ table.data .num {
     display: none;
   }
 }
+
+/* ---- funding ---- */
+.funding {
+  margin: 0.3rem 0;
+  padding-left: 1.1rem;
+}
+
+.funding li {
+  margin: 0.3rem 0;
+}
+
+.funding .who {
+  color: var(--muted);
+}
+
+h4.funding-h {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  margin: 0.75rem 0 0.2rem;
+}

@@ -9,7 +9,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, Request
@@ -22,6 +22,7 @@ from fastapi.responses import (
 )
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from jinja2 import StrictUndefined
 from limits import parse as parse_limit
 from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
@@ -30,7 +31,7 @@ from slowapi.util import get_remote_address
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from newsroom import __version__
+from newsroom import __version__, funding_view
 from newsroom.db import connect_readonly
 from newsroom.log import setup_logging
 from newsroom.ownership_view import Graph
@@ -58,9 +59,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         openapi_url=None,
     )
     templates = Jinja2Templates(directory=HERE / "templates")
+    # A missing variable must fail loudly, never render as an empty value: an absent
+    # funding list silently becoming "Not publicly disclosed" would be a false statement.
+    templates.env.undefined = StrictUndefined
     templates.env.filters["qs"] = lambda params: urlencode(params)
     templates.env.globals["day_label"] = lambda d: _day_label(d, datetime.now(tz).date())
     templates.env.filters["pct"] = lambda v: f"{v * 100:.4g}%"
+    templates.env.filters["money"] = _money
+    templates.env.filters["source_name"] = _source_name
     limiter = Limiter(key_func=get_remote_address, default_limits=[settings.rate_limit])
     search_limit = parse_limit(settings.search_rate_limit)
     app.state.limiter = limiter
@@ -103,7 +109,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             search_limit, "search", get_remote_address(request)
         ):
             return _error(request, 429, "Too many searches. Please wait a minute and try again.")
-        context: dict[str, object] = {"filters": filters, "page": None, "options": None}
+        context: dict[str, object] = {
+            "filters": filters,
+            "page": None,
+            "options": None,
+            "graph": None,
+            "owner_options": [],
+            "last_ingest": None,
+        }
         with database() as conn:
             if conn is not None:
                 try:
@@ -148,6 +161,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "outlet": outlet,
                 "node": node,
                 "chain": graph.chain(node.id) if node else [],
+                "graph": graph,
+                "funding_rows": funding_view.records(conn, graph.lineage(outlet["entity_id"])),
                 "articles": [
                     (r, queries.parse_ts(r["published_at"]).astimezone(tz))
                     for r in queries.recent_articles(conn, outlet["id"])
@@ -167,6 +182,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "outlet": outlet,
                 "node": node,
                 "chain": graph.chain(node.id) if node else [],
+                "graph": graph,
+                "funding_rows": funding_view.records(conn, graph.lineage(outlet["entity_id"])),
             }
         return templates.TemplateResponse(request, "_ownership_panel.html", context)
 
@@ -193,7 +210,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 raise StarletteHTTPException(404)
             counts = queries.article_counts(conn, datetime.now(tz))
             owned = queries.owned_outlets(graph, node.id, queries.outlets(conn), counts)
-            context = {"node": node, "chain": graph.chain(node.id), "owned": owned}
+            context = {
+                "node": node,
+                "chain": graph.chain(node.id),
+                "owned": owned,
+                "graph": graph,
+                "funding_rows": funding_view.records(conn, graph.lineage(node.id)),
+            }
         return templates.TemplateResponse(request, "owner.html", context)
 
     @app.get("/logos/{name}")
@@ -236,3 +259,23 @@ def _day_label(day: date, today: date) -> str:
     if day == today - timedelta(days=1):
         return "Yesterday"
     return f"{day:%A}, {day.day} {day:%B %Y}"
+
+
+SOURCE_NAMES = {
+    "sec_edgar": "SEC EDGAR",
+    "propublica": "ProPublica Nonprofit Explorer",
+    "cra": "Canada Revenue Agency",
+}
+
+
+def _money(amount: float, currency: str | None) -> str:
+    symbol = {"USD": "US$", "CAD": "C$"}.get(currency or "", "")
+    text = f"{amount:,.0f}"
+    return f"{symbol}{text}" if symbol else f"{text} {currency or ''}".strip()
+
+
+def _source_name(row: sqlite3.Row) -> str:
+    if row["source"] in SOURCE_NAMES:
+        return SOURCE_NAMES[row["source"]]
+    host = urlsplit(row["source_url"]).hostname or row["source_url"]
+    return host.removeprefix("www.")

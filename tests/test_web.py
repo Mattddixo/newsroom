@@ -93,3 +93,9 @@ def test_templates_autoescape(client: TestClient) -> None:
     )
     assert "<script>alert(1)</script>" not in rendered
     assert "&lt;script&gt;" in rendered
+
+
+def test_templates_fail_loudly_on_missing_variables(client: TestClient) -> None:
+    from jinja2 import StrictUndefined
+
+    assert client.app.state.templates.env.undefined is StrictUndefined  # type: ignore[attr-defined]

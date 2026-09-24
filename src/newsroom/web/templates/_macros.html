@@ -5,6 +5,8 @@
     {% if edge.relation == "owned_by" %}Owned by{% else %}Parent organization:{% endif %} {{ node.name }}{% if edge.share %} ({{ edge.share | pct }}){% endif %}{% if not loop.last %}; {% endif %}
   {%- endfor %}
   {%- if summary.ultimate %} · ultimately {% for n in summary.ultimate %}{{ n.name }}{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}
+{%- elif summary.entity -%}
+  No owner recorded
 {%- else -%}
   Owner: Not publicly disclosed
 {%- endif %}
@@ -30,4 +32,28 @@
 
 {% macro not_disclosed() -%}
 <a href="/about#not-disclosed">Not publicly disclosed</a>
+{%- endmacro %}
+
+{% macro no_owner() -%}
+<a href="/about#no-owner-recorded">No owner recorded</a>
+{%- endmacro %}
+
+{# Funding records with their sources. `rows` come ordered outlet-first, then owners. #}
+{% macro funding(rows, graph, heading_level=3) -%}
+<h{{ heading_level }} class="funding-h">Funding</h{{ heading_level }}>
+{% if rows %}
+<ul class="funding">
+  {% for r in rows %}
+  <li>
+    <span class="who">{{ graph.nodes[r.entity_id].name }}</span>: {{ r.label }}
+    {%- if r.amount is not none %}: <strong>{{ r.amount | money(r.currency) }}</strong>{% endif %}
+    {%- if r.period %} · {{ r.period }}{% endif %}
+    {%- if r.funder %} · from {{ r.funder }}{% endif %}
+    <span class="src">Source: <a href="{{ r.source_url }}" target="_blank" rel="noopener noreferrer">{{ r | source_name }}</a>, {% if r.source == "curated" %}checked{% else %}retrieved{% endif %} {{ r.retrieved_at[:10] }}</span>
+  </li>
+  {% endfor %}
+</ul>
+{% else %}
+<p>Funding: {{ not_disclosed() }}</p>
+{% endif %}
 {%- endmacro %}

@@ -59,10 +59,11 @@ def run_ingest(settings: Settings) -> None:
 def run_ownership(settings: Settings) -> None:
     try:
         jobs.resolve_ownership(settings)
+        jobs.refresh_funding(settings)
     except IngestBusy:
-        log.info("ownership refresh skipped: another job holds the lock")
+        log.info("ownership/funding refresh skipped: another job holds the lock")
     except Exception:
-        log.exception("ownership refresh failed")
+        log.exception("ownership/funding refresh failed")
 
 
 def run_prune(settings: Settings) -> None:

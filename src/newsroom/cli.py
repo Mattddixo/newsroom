@@ -11,15 +11,15 @@ import sys
 import urllib.request
 from datetime import UTC, datetime
 
-from newsroom import __version__, jobs
+from newsroom import __version__, funding_view, jobs
 from newsroom.backup import backup
-from newsroom.config import ConfigError, load_outlets, load_tags
+from newsroom.config import ConfigError, load_curated_funding, load_outlets, load_tags
 from newsroom.db import connect
 from newsroom.log import setup_logging
 from newsroom.migrate import migrate
 from newsroom.net.http import ApiError
 from newsroom.ownership_view import Graph
-from newsroom.services import ownership
+from newsroom.services import funding, ownership
 from newsroom.services.ingest import IngestBusy
 from newsroom.settings import get_settings
 from newsroom.sources.wikidata import WikidataSource
@@ -67,10 +67,11 @@ def cmd_config_check(_: argparse.Namespace) -> int:
     try:
         outlets = load_outlets(settings.config_dir / "outlets.yaml")
         tags = load_tags(settings.config_dir / "tags.yaml")
+        curated = load_curated_funding(settings.config_dir / "public_funding.yaml")
     except ConfigError as exc:
         print(f"Invalid: {exc}")
         return 1
-    print(f"OK: {len(outlets)} outlets, {len(tags)} tags.")
+    print(f"OK: {len(outlets)} outlets, {len(tags)} tags, {len(curated)} curated funding records.")
     return 0
 
 
@@ -225,6 +226,61 @@ def cmd_ownership_remove_edge(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_funding_refresh(args: argparse.Namespace) -> int:
+    s = jobs.refresh_funding(get_settings(), force=args.all)
+    print(
+        f"Identifiers checked: {s.checked} ({s.failed} failed), {s.records} records. "
+        f"Curated: {s.curated} attached, {s.curated_skipped} skipped (outlet not resolved)."
+    )
+    return 0 if not s.failed else 1
+
+
+def cmd_funding_show(args: argparse.Namespace) -> int:
+    conn = connect(get_settings().db_path)
+    try:
+        outlet = conn.execute("SELECT * FROM outlets WHERE domain = ?", (args.domain,)).fetchone()
+        if outlet is None:
+            print(f"Unknown outlet: {args.domain}")
+            return 1
+        graph = Graph.load(conn)
+        entity_ids = graph.lineage(outlet["entity_id"])
+        rows = funding_view.records(conn, entity_ids)
+    finally:
+        conn.close()
+    if not rows:
+        print("Funding: Not publicly disclosed")
+    for r in rows:
+        amount = f"{r['amount']:,.0f} {r['currency']}" if r["amount"] is not None else "(link)"
+        print(
+            f"{graph.nodes[r['entity_id']].name}: {r['label']}: {amount}"
+            f"{' · ' + r['period'] if r['period'] else ''}\n    source: {r['source_url']}"
+            f" (retrieved {r['retrieved_at'][:10]})"
+        )
+    return 0
+
+
+def cmd_entities_set_id(args: argparse.Namespace) -> int:
+    conn = connect(get_settings().db_path)
+    try:
+        value = funding.set_identifier(
+            conn, args.qid.upper(), args.scheme, args.value, datetime.now(UTC)
+        )
+    finally:
+        conn.close()
+    print(f"{args.qid}: {args.scheme} = {value}. Looked up on the next funding run (make funding).")
+    return 0
+
+
+def cmd_entities_remove_id(args: argparse.Namespace) -> int:
+    conn = connect(get_settings().db_path)
+    try:
+        n = funding.remove_identifier(conn, args.qid.upper(), args.scheme, args.value)
+    finally:
+        conn.close()
+    print(f"Removed {n} manual identifier(s).")
+    return 0
+
+
 def cmd_worker(_: argparse.Namespace) -> int:
     from newsroom.worker import main as worker_main
 
@@ -309,6 +365,29 @@ def build_parser() -> argparse.ArgumentParser:
     rm.add_argument("child")
     rm.add_argument("parent")
     rm.set_defaults(func=cmd_ownership_remove_edge)
+    fund = sub.add_parser("funding", help="funding tools").add_subparsers(
+        dest="funding_cmd", required=True
+    )
+    refresh = fund.add_parser("refresh", help="look up funding records that are due")
+    refresh.add_argument("--all", action="store_true", help="re-check every identifier now")
+    refresh.set_defaults(func=cmd_funding_refresh)
+    fshow = fund.add_parser("show", help="print funding records for an outlet and its owners")
+    fshow.add_argument("domain")
+    fshow.set_defaults(func=cmd_funding_show)
+
+    ent = sub.add_parser("entities", help="identifier tools").add_subparsers(
+        dest="entities_cmd", required=True
+    )
+    for name, func, text in (
+        ("set-id", cmd_entities_set_id, "record a registry identifier for an entity"),
+        ("remove-id", cmd_entities_remove_id, "remove a manually recorded identifier"),
+    ):
+        p = ent.add_parser(name, help=text)
+        p.add_argument("qid")
+        p.add_argument("scheme", choices=["sec_cik", "us_ein", "ca_bn"])
+        p.add_argument("value", help="e.g. 0000123456, 12-3456789, 123456789RR0001")
+        p.set_defaults(func=func)
+
     health = sub.add_parser("healthcheck", help="exit 0 if healthy (container healthcheck)")
     health.add_argument("target", choices=["web", "worker"])
     health.set_defaults(func=cmd_healthcheck)

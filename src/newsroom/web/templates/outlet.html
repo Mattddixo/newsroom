@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import chain as render_chain, not_disclosed %}
+{% from "_macros.html" import chain as render_chain, not_disclosed, no_owner, funding %}
 {% block title %}{{ outlet.display_name }} · newsroom{% endblock %}
 {% block content %}
 <h1>{% if outlet.logo_path %}<img class="logo-lg" src="/logos/{{ outlet.logo_path }}" alt="" width="32" height="32">{% endif %}{{ outlet.display_name }}</h1>
@@ -11,10 +11,14 @@
   <p><a href="/owner/{{ node.qid }}">{{ node.name }}</a>{% if node.description %} <span class="muted">({{ node.description }})</span>{% endif %}
     <span class="src">Source: <a href="{{ node.source_url }}" target="_blank" rel="noopener noreferrer">Wikidata {{ node.qid }}</a>, retrieved {{ node.retrieved_at[:10] }}.
     Matched {% if outlet.match_status == "auto" %}automatically by official website{% elif outlet.match_status == "confirmed" %}by official website, confirmed by hand{% else %}by hand{% endif %}.</span></p>
-    {% if chain %}{{ render_chain(chain) }}{% else %}<p>Owner: {{ not_disclosed() }}</p>{% endif %}
+    {% if chain %}{{ render_chain(chain) }}{% else %}<p>{{ no_owner() }}</p>{% endif %}
   {% else %}
   <p>Owner: {{ not_disclosed() }}</p>
   {% endif %}
+</section>
+
+<section>
+  {{ funding(funding_rows, graph, 2) }}
 </section>
 
 <section aria-labelledby="art-h">

@@ -1,0 +1,33 @@
+# Hand-curated funding records, for funding that no API covers: mainly government
+# funding of public broadcasters (CBC/Radio-Canada, NPR/PBS via CPB, ...).
+#
+# Every entry must come from a public document you have read, typically the
+# broadcaster's annual report or a government budget document. Copy figures
+# exactly as stated; do not estimate, round or convert currencies.
+#
+# Fields:
+#   outlet:     outlet domain from outlets.yaml   (or qid: a Wikidata item, e.g. Q12345)
+#   kind:       government_appropriation | grant | nonprofit_revenue | public_filing
+#   label:      what the figure is, in the document's own terms
+#   amount:     plain number, no commas or symbols (omit for a link-only record)
+#   currency:   ISO code, required with an amount (CAD, USD, ...)
+#   period:     fiscal year as the document states it, e.g. "2024-25"
+#   funder:     who provides the money, e.g. "Parliament of Canada"
+#   source_url: the document (or page) the figure comes from
+#   retrieved:  date you checked the source, YYYY-MM-DD
+#
+# Check with: docker compose exec worker newsroom config check
+# Applied on the next ownership/funding run, or now with: make funding
+#
+# Example (structure only; not a real figure):
+#   - outlet: example.ca
+#     kind: government_appropriation
+#     label: Parliamentary appropriations for operating expenditures
+#     amount: 123456000
+#     currency: CAD
+#     period: "2024-25"
+#     funder: Parliament of Canada
+#     source_url: https://example.ca/annual-report-2024-25.pdf
+#     retrieved: 2026-09-24
+
+funding: []

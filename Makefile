@@ -2,7 +2,7 @@
 COMPOSE := docker compose
 
 .DEFAULT_GOAL := help
-.PHONY: help init up down restart logs ps shell ingest-now retag config-check outlets unmatched ownership backup-db migrate test audit verify lint
+.PHONY: help init up down restart logs ps shell ingest-now retag config-check outlets unmatched ownership funding backup-db migrate test audit verify lint
 
 help: ## List targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  %-12s %s\n", $$1, $$2}'
@@ -45,6 +45,9 @@ unmatched: ## Outlets without a Wikidata match, with candidates
 
 ownership: ## Re-resolve ownership for every outlet now
 	$(COMPOSE) exec worker newsroom ownership resolve --all
+
+funding: ## Look up funding records now and apply config/public_funding.yaml
+	$(COMPOSE) exec worker newsroom funding refresh
 
 backup-db: ## Write a SQLite snapshot now
 	$(COMPOSE) exec worker newsroom backup

@@ -5,13 +5,14 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime, timedelta
 
-from newsroom.config import ConfigError, load_outlets, load_tags
+from newsroom.config import ConfigError, load_curated_funding, load_outlets, load_tags
 from newsroom.db import connect
 from newsroom.net.http import ApiClient
 from newsroom.net.safe_fetch import safe_fetch
-from newsroom.services import ingest, ownership
+from newsroom.services import funding, ingest, ownership
 from newsroom.services.tagging import Tagger, retag_all, sync_tags
 from newsroom.settings import Settings
+from newsroom.sources import funding as funding_sources
 from newsroom.sources.gdelt import GdeltSource
 from newsroom.sources.wikidata import WikidataSource
 
@@ -113,4 +114,32 @@ def resolve_ownership(
             client.close()
             conn.close()
     log.info("ownership resolved", extra={**vars(summary), "logos_updated": logos})
+    return summary
+
+
+def refresh_funding(settings: Settings, *, force: bool = False) -> funding.FundingSummary:
+    """Look up funding records for identifiers that are due, and sync the curated file."""
+    if not settings.contact_email:
+        raise ConfigError("CONTACT_EMAIL must be set in .env before querying SEC or ProPublica")
+    curated = load_curated_funding(settings.config_dir / "public_funding.yaml")
+    now = datetime.now(UTC).replace(microsecond=0)
+    sec = ApiClient(settings.user_agent, min_interval=0.2)  # SEC allows 10 req/s
+    propublica = ApiClient(settings.user_agent, min_interval=1.0)
+    fetchers: funding.Fetchers = {
+        "sec_cik": lambda v: funding_sources.fetch_sec(sec, v),
+        "us_ein": lambda v: funding_sources.fetch_propublica(propublica, v),
+        "ca_bn": funding_sources.cra_records,
+    }
+    with ingest.ingest_lock(settings.lock_path):
+        conn = connect(settings.db_path)
+        try:
+            summary = funding.refresh_funding(
+                conn, fetchers, now, timedelta(days=settings.ownership_refresh_days), force
+            )
+            funding.sync_curated(conn, curated, summary)
+        finally:
+            conn.close()
+            sec.close()
+            propublica.close()
+    log.info("funding refreshed", extra=vars(summary))
     return summary

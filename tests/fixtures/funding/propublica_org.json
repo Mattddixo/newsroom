@@ -1,0 +1,57 @@
+{
+ "organization": {
+  "ein": 123456789,
+  "name": "EXAMPLE NEWSROOM INC",
+  "city": "NEW YORK",
+  "state": "NY"
+ },
+ "filings_with_data": [
+  {
+   "tax_prd": 202112,
+   "tax_prd_yr": 2021,
+   "formtype": 0,
+   "pdf_url": null,
+   "totrevenue": 31000000,
+   "totfuncexpns": 29000000,
+   "totcntrbgftgrnt": 30000000
+  },
+  {
+   "tax_prd": 202312,
+   "tax_prd_yr": 2023,
+   "formtype": 0,
+   "pdf_url": null,
+   "totrevenue": 45123456,
+   "totfuncexpns": 40000000,
+   "totcntrbgftgrnt": 44000000
+  },
+  {
+   "tax_prd": 202212,
+   "tax_prd_yr": 2022,
+   "formtype": 0,
+   "pdf_url": null,
+   "totrevenue": 38500000,
+   "totfuncexpns": 36000000
+  },
+  {
+   "tax_prd": 202012,
+   "tax_prd_yr": 2020,
+   "formtype": 0,
+   "pdf_url": null,
+   "totrevenue": 25000000,
+   "totcntrbgftgrnt": 24000000
+  },
+  {
+   "tax_prd": 201912,
+   "tax_prd_yr": "bad",
+   "totrevenue": 1
+  }
+ ],
+ "filings_without_data": [
+  {
+   "tax_prd": 202412,
+   "tax_prd_yr": 2024,
+   "formtype": 0,
+   "pdf_url": "https://example.org/990.pdf"
+  }
+ ]
+}

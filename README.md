@@ -5,8 +5,8 @@ where a public record exists, **who funds it**. Every ownership or funding claim
 to its source record. Where no public record exists, the page says
 "Not publicly disclosed". No bias ratings, no sentiment scores, no editorializing.
 
-> Status: **Phase 3 (ownership).** Articles from GDELT and ownership chains from Wikidata
-> are in place, with outlet and owner pages and a curation CLI. Funding (phase 4) comes next.
+> Status: **Phase 4 (funding).** Articles (GDELT), ownership chains (Wikidata) and funding
+> records (SEC EDGAR, ProPublica, CRA, curated public-broadcaster figures) are in place.
 
 ## How it runs
 
@@ -63,6 +63,7 @@ for Tailscale at boot.
 | `make outlets`     | Outlets with article counts and latest article time                  |
 | `make unmatched`   | Outlets without a Wikidata match, with candidate items               |
 | `make ownership`   | Re-resolve ownership for every outlet now                            |
+| `make funding`     | Look up funding records now and apply `config/public_funding.yaml`   |
 | `make backup-db`   | Write a SQLite snapshot now                                          |
 | `make test`        | Lint + tests inside a throwaway build stage (no Python needed on the host) |
 | `make audit`       | `pip-audit` of the locked dependencies                               |
@@ -160,6 +161,36 @@ docker compose exec worker newsroom ownership remove-edge Q111 Q222
 
 The better long-term fix is to add the statement to Wikidata itself, with a reference.
 
+## Funding
+
+Funding is shown **only where a public record exists**, and each record links to that record.
+Records are attached to the outlet's own Wikidata item or to any owner above it. The panel
+lists the outlet first, then its owners.
+
+| Source | Applies to | Keyed by | What is shown |
+|---|---|---|---|
+| SEC EDGAR | Public companies filing with the SEC (including Canadian 40-F filers) | SEC CIK | Link to the latest annual report (10-K / 20-F / 40-F) and to the filing index. No figures are extracted. |
+| ProPublica Nonprofit Explorer | US nonprofits | IRS EIN | Total revenue and "contributions, gifts and grants", last 3 tax years (Form 990) |
+| Canada Revenue Agency | Canadian registered charities | Business number (`123456789RR0001`) | Link to the charity's CRA listing, which holds its T3010 returns |
+| `config/public_funding.yaml` | Anything else with a published figure, e.g. government funding of CBC/Radio-Canada, CPB funding of NPR/PBS | Outlet domain or QID | Exactly what you enter, with its source URL and the date you checked it |
+
+- **Where IDs come from:** CIKs (Wikidata P5531) and EINs (P1297) come from Wikidata when the
+  owner's item has them. Add missing ones, and every CRA business number, by hand. The
+  source recorded is the registry's own page for that ID:
+
+  ```bash
+  docker compose exec worker newsroom entities set-id Q12345 ca_bn 123456789RR0001
+  docker compose exec worker newsroom entities set-id Q67890 us_ein 12-3456789
+  make funding
+  docker compose exec worker newsroom funding show thenarwhal.ca
+  ```
+
+- **When it runs:** lookups run with the ownership refresh, every 6 hours, for identifiers not
+  checked within `OWNERSHIP_REFRESH_DAYS`. A failed lookup keeps the previous records.
+- **Nothing found:** the panel says "Funding: Not publicly disclosed".
+- **Contact email:** SEC's fair-access policy requires a User-Agent with a contact address,
+  so `CONTACT_EMAIL` must be set.
+
 ## CLI reference
 
 Run inside the worker: `docker compose exec worker newsroom <command>`.
@@ -178,6 +209,10 @@ Run inside the worker: `docker compose exec worker newsroom <command>`.
 | `ownership show D` | Print an outlet's chain with source links                      |
 | `ownership add-edge C P --source-url URL` | Record a sourced link missing from Wikidata |
 | `ownership remove-edge C P` | Remove a manual link                                  |
+| `funding refresh [--all]` | Look up funding records that are due (or all)           |
+| `funding show D`   | Print an outlet's funding records with sources                 |
+| `entities set-id Q SCHEME VALUE` | Record a `sec_cik`, `us_ein` or `ca_bn` for item Q |
+| `entities remove-id Q SCHEME VALUE` | Remove a manually recorded identifier        |
 | `backup`           | Write a consistent SQLite snapshot now                         |
 | `migrate`          | Apply pending schema migrations (the worker does this on start) |
 

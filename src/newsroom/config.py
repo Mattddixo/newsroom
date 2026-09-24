@@ -5,9 +5,12 @@ from __future__ import annotations
 import re
 import unicodedata
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 
 import yaml
+
+from newsroom.urls import is_http_url
 
 DOMAIN_RE = re.compile(r"^[a-z0-9-]+(\.[a-z0-9-]+)+$")
 SLUG_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
@@ -97,3 +100,81 @@ def normalize_text(text: str) -> str:
     decomposed = unicodedata.normalize("NFKD", text.casefold())
     stripped = "".join(c for c in decomposed if not unicodedata.combining(c))
     return " ".join(stripped.split())
+
+
+CURATED_KINDS = ("government_appropriation", "grant", "nonprofit_revenue", "public_filing")
+
+
+@dataclass(frozen=True)
+class CuratedFunding:
+    outlet: str | None  # outlet domain, or
+    qid: str | None  # a Wikidata item
+    kind: str
+    label: str
+    amount: float | None
+    currency: str | None
+    period: str | None
+    funder: str | None
+    source_url: str
+    retrieved: str  # YYYY-MM-DD: when you checked the source
+
+
+def load_curated_funding(path: Path) -> list[CuratedFunding]:
+    """Hand-curated funding figures (e.g. public broadcasters). Missing file = none."""
+    if not path.exists():
+        return []
+    data = _load(path)
+    items = data.get("funding") if isinstance(data, dict) else None
+    if items is None:
+        return []
+    if not isinstance(items, list):
+        raise ConfigError(f"{path.name}: 'funding:' must be a list")
+    out: list[CuratedFunding] = []
+    for i, item in enumerate(items, 1):
+        where = f"{path.name} entry {i}"
+        if not isinstance(item, dict):
+            raise ConfigError(f"{where}: expected a mapping")
+        outlet = str(item["outlet"]).strip().lower() if item.get("outlet") else None
+        qid = str(item["qid"]).strip().upper() if item.get("qid") else None
+        if bool(outlet) == bool(qid):
+            raise ConfigError(f"{where}: give exactly one of 'outlet' or 'qid'")
+        if outlet and not DOMAIN_RE.match(outlet):
+            raise ConfigError(f"{where}: invalid outlet domain {outlet!r}")
+        if qid and not re.fullmatch(r"Q[1-9]\d{0,11}", qid):
+            raise ConfigError(f"{where}: invalid qid {qid!r}")
+        kind = str(item.get("kind", ""))
+        if kind not in CURATED_KINDS:
+            raise ConfigError(f"{where}: kind must be one of {', '.join(CURATED_KINDS)}")
+        label = str(item.get("label", "")).strip()
+        if not label:
+            raise ConfigError(f"{where}: label is required")
+        amount = item.get("amount")
+        if amount is not None and (
+            isinstance(amount, bool) or not isinstance(amount, int | float) or amount < 0
+        ):
+            raise ConfigError(f"{where}: amount must be a non-negative number (no commas)")
+        currency = str(item["currency"]).strip().upper() if item.get("currency") else None
+        if amount is not None and not (currency and re.fullmatch(r"[A-Z]{3}", currency)):
+            raise ConfigError(f"{where}: a 3-letter currency is required with an amount")
+        source_url = str(item.get("source_url", "")).strip()
+        if not is_http_url(source_url):
+            raise ConfigError(f"{where}: source_url (http/https) is required")
+        try:
+            retrieved = date.fromisoformat(str(item.get("retrieved", ""))).isoformat()
+        except ValueError as exc:
+            raise ConfigError(f"{where}: retrieved must be a date (YYYY-MM-DD)") from exc
+        out.append(
+            CuratedFunding(
+                outlet=outlet,
+                qid=qid,
+                kind=kind,
+                label=label,
+                amount=float(amount) if amount is not None else None,
+                currency=currency,
+                period=str(item["period"]).strip() if item.get("period") else None,
+                funder=str(item["funder"]).strip() if item.get("funder") else None,
+                source_url=source_url,
+                retrieved=retrieved,
+            )
+        )
+    return out

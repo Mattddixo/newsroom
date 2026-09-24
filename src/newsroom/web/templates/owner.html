@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import chain as render_chain %}
+{% from "_macros.html" import chain as render_chain, funding %}
 {% block title %}{{ node.name }} · newsroom{% endblock %}
 {% block content %}
 <h1>{{ node.name }}</h1>
@@ -17,6 +17,10 @@
   {{ render_chain(chain) }}
 </section>
 {% endif %}
+
+<section>
+  {{ funding(funding_rows, graph, 2) }}
+</section>
 
 <section aria-labelledby="owned-h">
   <h2 id="owned-h">Outlets in this feed</h2>
