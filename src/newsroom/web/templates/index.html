@@ -63,8 +63,20 @@
   <div class="results-bar">
     <p class="count" aria-live="polite">
       {% if page.pages > 1 %}{{ "{:,}".format(page.first) }}–{{ "{:,}".format(page.last) }} of {% endif %}{{ "{:,}".format(page.total) }} article{{ "s" if page.total != 1 }}
+      {%- if page.hidden %} · <a href="{{ feed_url(filters.params(mix='all', page=1)) }}" title="Up to {{ cap }} articles per outlet per hour are shown, so busy outlets don't crowd out the rest. Click to show everything.">{{ "{:,}".format(page.hidden) }} more hidden</a>{% endif %}
       {%- if filters.active %} · <a class="clear" href="/">Clear filters</a>{% endif %}
     </p>
+    {% if not filters.outlet %}
+    <label>Show
+      <select name="mix" {{ live | safe }}>
+        {% for key, label in mixes.items() %}
+        <option value="{{ key }}"{% if key == filters.mix %} selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    {% else %}
+    <input type="hidden" name="mix" value="{{ filters.mix }}">
+    {% endif %}
     <label>Sort
       <select name="sort" {{ live | safe }}>
         {% for key, label in filters.sort_options.items() %}
@@ -104,7 +116,7 @@
   {% if page.page == 1 and filters.sort == "newest" and not filters.q %}
   {#- Checks every 2 minutes; never reloads the page by itself. #}
   <div class="new-articles" aria-live="polite"
-       hx-get="/fragments/new?{{ filters.filter_params() | qs }}{{ '&' if filters.filter_params() }}since={{ latest_id }}"
+       hx-get="/fragments/new?{{ filters.filter_params() | qs }}{{ '&' if filters.filter_params() }}{% if filters.mix != 'balanced' %}mix={{ filters.mix }}&{% endif %}since={{ latest_id }}"
        hx-trigger="every 120s" hx-swap="innerHTML" hx-disinherit="*"></div>
   {% endif %}
   {% for group in page.groups %}

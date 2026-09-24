@@ -11,6 +11,7 @@ import random
 import re
 import sqlite3
 import unicodedata
+from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -58,10 +59,13 @@ def world(tmp_path_factory: pytest.TempPathFactory) -> tuple[sqlite3.Connection,
     conn = make_db(path, NOW)
     domains = [o.domain for o in OUTLETS]
     records, meta = [], []
-    for i in range(300):
+    burst_at = NOW - timedelta(hours=5, minutes=50)
+    for i in range(360):
         d = rng.choice(domains)
         title = " ".join(rng.sample(WORDS, 3)) + f" {i}"
         seen = NOW - timedelta(minutes=rng.randint(0, 10 * 24 * 60))
+        if i >= 300:  # one busy outlet publishing a lot within a couple of hours
+            d, seen = "cbc.ca", burst_at + timedelta(minutes=rng.randint(0, 100))
         # some pages give a publication time before GDELT saw them; ties on purpose
         published = (
             seen - timedelta(minutes=rng.choice([0, 5, 90, 600])) if rng.random() < 0.6 else None
@@ -117,6 +121,7 @@ def world(tmp_path_factory: pytest.TempPathFactory) -> tuple[sqlite3.Connection,
 
 
 OWNED = {"Q900": {"cbc.ca", "radio-canada.ca"}, "Q903": {"radio-canada.ca"}}
+CAP = 3
 
 
 def matches_query(title: str, q: str) -> bool:
@@ -147,6 +152,15 @@ def expected(meta: list[dict], f: queries.FeedFilters) -> list[dict]:
         if f.date_to and local_day > f.date_to:
             continue
         rows.append(m)
+    if f.mix == "balanced" and not f.outlet:
+        # each outlet's newest CAP per UTC hour, among the matching articles
+        kept, per_hour = [], {}
+        for m in sorted(rows, key=lambda m: (m["shown"], m["id"]), reverse=True):
+            key = (m["domain"], m["shown"].astimezone(UTC).strftime("%Y-%m-%dT%H"))
+            per_hour[key] = per_hour.get(key, 0) + 1
+            if per_hour[key] <= CAP:
+                kept.append(m)
+        rows = kept
     if f.sort == "oldest":
         rows.sort(key=lambda m: (m["shown"], m["id"]))
     elif f.sort == "outlet":
@@ -171,6 +185,7 @@ COMBOS = list(
         ["", "Q900", "Q903"],
         FROM_TO,
         ["newest", "oldest", "outlet", "relevance"],
+        ["balanced", "all"],
     )
 )
 
@@ -178,7 +193,7 @@ COMBOS = list(
 def test_every_filter_and_sort_combination(world: tuple[sqlite3.Connection, list[dict]]) -> None:
     conn, meta = world
     checked = 0
-    for q, tag, outlet, country, owner, (d_from, d_to), sort in COMBOS:
+    for q, tag, outlet, country, owner, (d_from, d_to), sort, mix in COMBOS:
         if sort == "relevance" and not q:
             continue
         params = {
@@ -190,16 +205,19 @@ def test_every_filter_and_sort_combination(world: tuple[sqlite3.Connection, list
             "from": d_from.isoformat() if d_from else "",
             "to": d_to.isoformat() if d_to else "",
             "sort": sort,
+            "mix": mix,
             "per": "25",
         }
         f = queries.FeedFilters.parse(params)
         want = expected(meta, f)
         got_ids: list[int] = []
-        page = queries.feed(conn, f, TZ)
+        page = queries.feed(conn, f, TZ, CAP)
         assert page.total == len(want), params
+        if f.balanced:
+            assert page.hidden == len(expected(meta, replace(f, mix="all"))) - len(want), params
         for n in range(1, page.pages + 1):
             fp = queries.FeedFilters.parse({**params, "page": str(n)})
-            p = queries.feed(conn, fp, TZ)
+            p = queries.feed(conn, fp, TZ, CAP)
             ids = [a.id for g in p.groups for a in g.articles]
             assert len(ids) == (p.last - p.first + 1 if p.total else 0), params
             got_ids += ids
@@ -208,7 +226,20 @@ def test_every_filter_and_sort_combination(world: tuple[sqlite3.Connection, list
         else:
             assert got_ids == [m["id"] for m in want], params
         checked += 1
-    assert checked > 1000
+    assert checked > 2000
+
+
+def test_balanced_mix_caps_a_busy_outlet(world: tuple[sqlite3.Connection, list[dict]]) -> None:
+    conn, meta = world
+    everything = queries.FeedFilters(mix="all", per=100)
+    balanced = queries.FeedFilters(per=100)
+    assert queries.feed(conn, balanced, TZ, CAP).hidden > 40  # the burst is capped
+    assert queries.feed(conn, everything, TZ, CAP).hidden == 0
+    one_outlet = queries.FeedFilters(outlet="cbc.ca", per=100)
+    assert queries.feed(conn, one_outlet, TZ, CAP).hidden == 0  # an outlet's own feed: all
+    new_all = queries.count_new(conn, everything, TZ, 0, CAP)
+    new_balanced = queries.count_new(conn, balanced, TZ, 0, CAP)
+    assert new_all == len(meta) and new_balanced == len(expected(meta, balanced))
 
 
 def test_dates_shown_and_grouping_follow_the_shown_date(

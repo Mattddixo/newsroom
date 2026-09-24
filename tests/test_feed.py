@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -151,8 +152,9 @@ def add_articles(settings: Settings, n: int) -> None:
     conn.close()
 
 
-def test_pagination_pages_and_links(settings: Settings, client: TestClient) -> None:
-    add_articles(settings, 55)  # 60 in total
+def test_pagination_pages_and_links(settings: Settings) -> None:
+    add_articles(settings, 55)  # 60 in total, most within one hour
+    client = TestClient(create_app(replace(settings, feed_outlet_cap=1000)))
     first = client.get("/", params={"per": 25}).text
     assert "1\u201325 of 60 articles" in first
     assert "Page 1 of 3" in first
@@ -232,9 +234,9 @@ def test_htmx_request_gets_clean_push_url(client: TestClient) -> None:
 def test_changing_a_filter_resets_the_page(settings: Settings, client: TestClient) -> None:
     add_articles(settings, 55)
     # newest first, 25 per page: the tagged "Housing starts…" (1 h old) lands on page 3
-    html = client.get("/", params={"per": 25, "page": 3}).text
+    html = client.get("/", params={"per": 25, "page": 3, "mix": "all"}).text
     links = set(re.findall(r'href="(/\?[^"]*tag=housing[^"]*)"', html))
-    assert links == {"/?tag=housing&amp;per=25"}  # keeps per-page, goes back to page 1
+    assert links == {"/?tag=housing&amp;mix=all&amp;per=25"}  # keeps settings, back to page 1
     assert 'hx-include="closest form"' in html and 'name="page"' not in html
 
 
@@ -350,3 +352,19 @@ def test_filter_options_collapse_unless_a_filter_is_set(client: TestClient) -> N
     filtered = client.get("/", params={"tag": "housing", "from": "2026-09-01"}).text
     assert '<details class="more-filters" open>' in filtered
     assert '<span class="badge">2 active</span>' in filtered
+
+
+def test_balanced_mix_limits_busy_outlets(settings: Settings, client: TestClient) -> None:
+    add_articles(settings, 55)  # cbc.ca: 55 more within about an hour
+    html = client.get("/", params={"per": 100}).text
+    shown = titles(html)
+    bulk = [t for t in shown if t.startswith("Bulk story")]
+    assert len(bulk) <= 3 * 2  # at most 3 per outlet per hour; the burst spans two hours
+    assert "more hidden</a>" in html
+    assert 'href="/?mix=all&amp;per=100"' in html
+    assert '<select name="mix"' in html
+    everything = client.get("/", params={"per": 100, "mix": "all"}).text
+    assert len(titles(everything)) == 60 and "more hidden" not in everything
+    one_outlet = client.get("/", params={"per": 100, "outlet": "cbc.ca"}).text
+    assert len(titles(one_outlet)) == 58  # an outlet's own feed shows everything
+    assert '<select name="mix"' not in one_outlet

@@ -132,6 +132,7 @@ for Tailscale at boot.
 | `INGEST_OFFSET_MINUTES` | `3`          | Minutes after each GDELT update to run (→ :03, :18, :33, :48) |
 | `INGEST_BACKFILL_HOURS`   | `48`       | How far back ingestion ever reaches (first run, and catch-up after downtime) |
 | `RETENTION_DAYS`  | `365`              | Articles older than this are deleted nightly (0 = keep forever) |
+| `FEED_OUTLET_CAP` | `3`                | Balanced feed: most articles shown per outlet per hour ("Show: Everything" shows all) |
 | `GDELT_GROUP_SIZE`| `8`                | Outlets per GDELT query                                      |
 | `GDELT_MIN_INTERVAL` | `10`            | Seconds between GDELT requests (GDELT asks for ≥ 5; it still sends 429s at 6) |
 | `OWNERSHIP_REFRESH_DAYS` | `7`         | Re-check each outlet's Wikidata chain after this many days   |

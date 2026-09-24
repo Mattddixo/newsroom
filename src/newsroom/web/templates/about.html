@@ -21,6 +21,7 @@
 
 <h2 id="articles">Articles</h2>
 <p>Headlines come from the GDELT Project and are updated every {{ interval }} minutes. Only the headline, link, outlet, language and date are kept, never the article text. Links go straight to the outlet. Times are in {{ request.app.state.settings.timezone }}. Topic tags are based on keywords in the headline.</p>
+<p>Some outlets publish far more than others, often because they also run wire stories. So the feed shows at most {{ cap }} articles per outlet per hour, and tells you how many it left out. Choose <strong>Show: Everything</strong> to see them all. An outlet's own page and the outlet filter always show everything.</p>
 
 <h3 id="dates">Dates</h3>
 <p>GDELT only records when it found an article, so the site checks each new article's page for its publication date, the same date search engines use. Only the date is kept. Each page is checked at most twice, and each site's robots.txt is respected.</p>

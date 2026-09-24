@@ -77,20 +77,24 @@ def cmd_config_check(_: argparse.Namespace) -> int:
 
 def cmd_outlets_list(_: argparse.Namespace) -> int:
     conn = connect(get_settings().db_path)
+    day_after = (datetime.now(UTC) - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
     try:
         rows = conn.execute(
             "SELECT o.domain, o.display_name, o.active, o.match_status, o.wikidata_qid,"
-            " (SELECT count(*) FROM articles a WHERE a.outlet_id = o.id) AS articles"
-            " FROM outlets o ORDER BY o.domain"
+            " (SELECT count(*) FROM articles a WHERE a.outlet_id = o.id) AS articles,"
+            " (SELECT count(*) FROM articles a WHERE a.outlet_id = o.id"
+            "  AND a.published_at >= ?) AS last_day"
+            " FROM outlets o ORDER BY o.domain",
+            (day_after,),
         ).fetchall()
     finally:
         conn.close()
-    print(f"{'DOMAIN':<26} {'MATCH':<10} {'QID':<12} {'ARTICLES':>8}  NAME")
+    print(f"{'DOMAIN':<26} {'MATCH':<10} {'QID':<12} {'ARTICLES':>8} {'24 H':>5}  NAME")
     for r in rows:
         state = "" if r["active"] else "  (inactive)"
         print(
             f"{r['domain']:<26} {r['match_status']:<10} {r['wikidata_qid'] or '-':<12} "
-            f"{r['articles']:>8}  {r['display_name']}{state}"
+            f"{r['articles']:>8} {r['last_day']:>5}  {r['display_name']}{state}"
         )
     return 0
 
@@ -328,6 +332,14 @@ def cmd_status(_: argparse.Namespace) -> int:
                 "SELECT match_status, count(*) FROM outlets WHERE active = 1 GROUP BY 1"
             ).fetchall()
         )
+        # Articles per outlet over the last day (by when GDELT saw them), busiest first.
+        day_after = (now - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        per_outlet = conn.execute(
+            "SELECT o.display_name, count(a.id) AS n FROM outlets o"
+            " LEFT JOIN articles a ON a.outlet_id = o.id AND a.published_at >= ?"
+            " WHERE o.active = 1 GROUP BY o.id ORDER BY n DESC, o.display_name",
+            (day_after,),
+        ).fetchall()
         checked = one("SELECT min(ownership_checked_at) FROM outlets WHERE active = 1")[0]
         ents = one("SELECT count(*) FROM entities")[0]
         edges = one("SELECT count(*) FROM ownership_edges")[0]
@@ -359,6 +371,16 @@ def cmd_status(_: argparse.Namespace) -> int:
     if behind:
         shown = ", ".join(behind[:6]) + (f" and {len(behind) - 6} more" if len(behind) > 6 else "")
         print(f"  behind:          {shown}")
+    day_total = sum(r["n"] for r in per_outlet)
+    if day_total:
+        busiest = ", ".join(
+            f"{r['display_name']} {r['n']} ({r['n'] * 100 // day_total}%)"
+            for r in per_outlet[:5]
+            if r["n"]
+        )
+        silent = sum(1 for r in per_outlet if not r["n"])
+        print(f"  last 24 h:       {day_total} articles; busiest: {busiest}")
+        print(f"  none in 24 h:    {silent} of {len(per_outlet)} outlets (see `make outlets`)")
     print("Ownership")
     print("  outlet matches:  " + ", ".join(f"{k} {v}" for k, v in sorted(matches.items())))
     print(f"  oldest check:    {checked or 'never'}")

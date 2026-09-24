@@ -22,6 +22,8 @@ SORTS = {
     "outlet": "Outlet name",
     "relevance": "Best match",  # only with a search
 }
+MIXES = {"balanced": "Balanced", "all": "Everything"}
+DEFAULT_OUTLET_CAP = 3  # balanced mix: articles per outlet per hour
 MAX_QUERY_LENGTH = 200
 _TOKEN = re.compile(r"\w+", re.UNICODE)
 _DOMAIN = re.compile(r"^[a-z0-9-]+(\.[a-z0-9-]+)+$")
@@ -46,6 +48,9 @@ class FeedFilters:
     sort: str = "newest"
     page: int = 1
     per: int = DEFAULT_PAGE_SIZE
+    mix: str = (
+        "balanced"  # balanced: cap each outlet per hour so busy ones don't crowd out the rest
+    )
 
     @classmethod
     def parse(cls, params: dict[str, str]) -> FeedFilters:
@@ -63,6 +68,7 @@ class FeedFilters:
             date_from, date_to = date_to, date_from
         page = _int(params.get("page", ""), 1)
         per = _int(params.get("per", ""), DEFAULT_PAGE_SIZE)
+        mix = params.get("mix", "balanced")
         return cls(
             q=q,
             tag=tag if _SLUG.match(tag) else "",
@@ -74,6 +80,7 @@ class FeedFilters:
             sort=sort,
             page=page if 1 <= page <= MAX_PAGE else 1,
             per=per if per in PAGE_SIZES else DEFAULT_PAGE_SIZE,
+            mix=mix if mix in MIXES else "balanced",
         )
 
     def params(self, **overrides: object) -> dict[str, str]:
@@ -83,9 +90,11 @@ class FeedFilters:
             key: "" for key in ("q", "tag", "outlet", "country", "owner", "from", "to")
         }  # fixed order, so URLs read the same however they were built
         values.update(self.filter_params())
-        values.update({"sort": self.sort, "per": str(self.per), "page": str(self.page)})
+        values.update(
+            {"sort": self.sort, "mix": self.mix, "per": str(self.per), "page": str(self.page)}
+        )
         values.update({k: str(v) for k, v in overrides.items()})
-        defaults = {"sort": "newest", "per": str(DEFAULT_PAGE_SIZE), "page": "1"}
+        defaults = {"sort": "newest", "mix": "balanced", "per": str(DEFAULT_PAGE_SIZE), "page": "1"}
         return {k: v for k, v in values.items() if v and defaults.get(k) != v}
 
     def filter_params(self) -> dict[str, str]:
@@ -104,6 +113,11 @@ class FeedFilters:
     @property
     def active(self) -> bool:
         return bool(self.filter_params())
+
+    @property
+    def balanced(self) -> bool:
+        """The cap only makes sense across outlets; one outlet's feed always shows everything."""
+        return self.mix == "balanced" and not self.outlet
 
     @property
     def sort_options(self) -> dict[str, str]:
@@ -164,6 +178,7 @@ class FeedPage:
     total: int
     page: int
     per: int
+    hidden: int = 0  # left out by the balanced mix
 
     @property
     def pages(self) -> int:
@@ -232,21 +247,41 @@ def _conditions(
     return where, args
 
 
+def _cap(source: str, where: list[str], args: list[object], cap: int) -> tuple[str, list[object]]:
+    """Condition keeping each outlet's newest `cap` articles per hour (UTC) among those that
+    match. Same FROM/WHERE as the outer query, so the cap applies after the filters."""
+    clause = " WHERE " + " AND ".join(where) if where else ""
+    sql = (
+        "a.id IN (SELECT id FROM (SELECT a.id AS id, row_number() OVER ("  # noqa: S608
+        f"PARTITION BY a.outlet_id, substr({SHOWN_AT}, 1, 13)"
+        f" ORDER BY {SHOWN_AT} DESC, a.id DESC) AS n{source}{clause}) WHERE n <= ?)"
+    )
+    return sql, [*args, cap]
+
+
 def latest_id(conn: sqlite3.Connection) -> int:
     return conn.execute("SELECT coalesce(max(id), 0) FROM articles").fetchone()[0]
 
 
-def count_new(conn: sqlite3.Connection, f: FeedFilters, tz: ZoneInfo, since_id: int) -> int:
-    """Articles added after `since_id` (insertion order) that match the filters."""
+def count_new(
+    conn: sqlite3.Connection,
+    f: FeedFilters,
+    tz: ZoneInfo,
+    since_id: int,
+    cap: int = DEFAULT_OUTLET_CAP,
+) -> int:
+    """Articles added after `since_id` (insertion order) that match the filters (and,
+    in the balanced mix, would be shown)."""
     cond = _conditions(f, tz)
     if cond is None:
         return 0
     where, args = cond
+    source = " FROM articles a JOIN outlets o ON o.id = a.outlet_id"
+    if f.balanced:
+        capped, cap_args = _cap(source, where, args, cap)
+        where, args = [*where, capped], [*args, *cap_args]
     clause = " AND ".join(["a.id > ?", *where])
-    sql = (
-        "SELECT count(*) FROM articles a JOIN outlets o ON o.id = a.outlet_id"  # noqa: S608
-        f" WHERE {clause}"
-    )
+    sql = f"SELECT count(*){source} WHERE {clause}"
     return conn.execute(sql, [since_id, *args]).fetchone()[0]
 
 
@@ -263,7 +298,9 @@ SELECT_COLUMNS = (
 )
 
 
-def feed(conn: sqlite3.Connection, f: FeedFilters, tz: ZoneInfo) -> FeedPage:
+def feed(
+    conn: sqlite3.Connection, f: FeedFilters, tz: ZoneInfo, cap: int = DEFAULT_OUTLET_CAP
+) -> FeedPage:
     relevance = f.sort == "relevance" and bool(f.q)
     cond = _conditions(f, tz, with_query=not relevance)
     match = fts_query(f.q) if relevance else ""
@@ -281,8 +318,16 @@ def feed(conn: sqlite3.Connection, f: FeedFilters, tz: ZoneInfo) -> FeedPage:
     else:
         source = " FROM articles a JOIN outlets o ON o.id = a.outlet_id"
     # `where`, `source` and ORDERS hold only fixed SQL; every value is a bound parameter.
+    hidden = 0
+    if f.balanced:
+        clause = " WHERE " + " AND ".join(where) if where else ""
+        everything = conn.execute(f"SELECT count(*){source}{clause}", args).fetchone()[0]
+        capped, cap_args = _cap(source, where, args, cap)
+        where, args = [*where, capped], [*args, *cap_args]
     clause = " WHERE " + " AND ".join(where) if where else ""
     total = conn.execute(f"SELECT count(*){source}{clause}", args).fetchone()[0]
+    if f.balanced:
+        hidden = everything - total
     page = min(f.page, max(1, -(-total // f.per)))
     rows = conn.execute(
         f"SELECT {SELECT_COLUMNS}{source}{clause} ORDER BY {ORDERS[f.sort]} LIMIT ? OFFSET ?",
@@ -317,7 +362,7 @@ def feed(conn: sqlite3.Connection, f: FeedFilters, tz: ZoneInfo) -> FeedPage:
             Group("day", list(items), day=d)
             for d, items in groupby(articles, key=lambda a: a.published.date())
         ]
-    return FeedPage(groups, total, page, f.per)
+    return FeedPage(groups, total, page, f.per, hidden)
 
 
 def _attach_tags(conn: sqlite3.Connection, articles: list[Article]) -> None:

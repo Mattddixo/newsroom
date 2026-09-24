@@ -71,6 +71,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     templates.env.filters["article_date"] = lambda d: _article_date(d, datetime.now(tz))
     templates.env.filters["money"] = _money
     templates.env.globals["page_url"] = lambda f, n: _feed_url(f.params(page=n))
+    templates.env.globals["feed_url"] = _feed_url
+    templates.env.globals["mixes"] = queries.MIXES
     templates.env.filters["source_name"] = _source_name
     client_ip = client_ip_resolver(settings.trusted_proxies)
     limiter = Limiter(key_func=client_ip, default_limits=[settings.rate_limit])
@@ -124,11 +126,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "stale": False,
             "latest_id": 0,
             "interval": settings.ingest_interval_minutes,
+            "cap": settings.feed_outlet_cap,
         }
         with database() as conn:
             if conn is not None:
                 try:
-                    context["page"] = queries.feed(conn, filters, tz)
+                    context["page"] = queries.feed(conn, filters, tz, settings.feed_outlet_cap)
                     context["latest_id"] = queries.latest_id(conn)
                     context["options"] = queries.filter_options(conn)
                     graph = Graph.load(conn)
@@ -158,7 +161,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/about", response_class=HTMLResponse)
     def about(request: Request) -> Response:
         return templates.TemplateResponse(
-            request, "about.html", {"interval": settings.ingest_interval_minutes}
+            request,
+            "about.html",
+            {"interval": settings.ingest_interval_minutes, "cap": settings.feed_outlet_cap},
         )
 
     @app.get("/fragments/new", response_class=HTMLResponse)
@@ -171,7 +176,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if since.isdigit() and len(since) <= 12 and not filters.q:
             with database() as conn:
                 if conn is not None:
-                    count = queries.count_new(conn, filters, tz, int(since))
+                    count = queries.count_new(
+                        conn, filters, tz, int(since), settings.feed_outlet_cap
+                    )
         return templates.TemplateResponse(
             request, "_new_articles.html", {"count": count, "filters": filters}
         )
