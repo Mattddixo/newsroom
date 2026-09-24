@@ -2,13 +2,24 @@
 COMPOSE := docker compose
 
 .DEFAULT_GOAL := help
-.PHONY: help init up down restart logs ps status shell ingest-now retag config-check outlets unmatched ownership funding backup-db migrate test audit verify lint
+.PHONY: help setup init host-setup up down restart logs ps status shell ingest-now retag config-check outlets unmatched ownership funding backup-db migrate test audit verify lint
 
 help: ## List targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  %-12s %s\n", $$1, $$2}'
 
-init: ## One-time host setup: /storage dirs + .env
-	./scripts/init-host.sh
+setup: ## Everything, once: make setup CONTACT_EMAIL=you@example.org
+	CONTACT_EMAIL="$(CONTACT_EMAIL)" TAILSCALE_IP="$(TAILSCALE_IP)" ./scripts/init-host.sh
+	./scripts/host-setup.sh
+	docker build --target test -t newsroom:test .
+	$(COMPOSE) up -d --build --wait
+	./scripts/verify-binding.sh
+	$(COMPOSE) exec worker newsroom config check
+
+init: ## Storage dirs + .env (make init CONTACT_EMAIL=you@example.org)
+	CONTACT_EMAIL="$(CONTACT_EMAIL)" TAILSCALE_IP="$(TAILSCALE_IP)" ./scripts/init-host.sh
+
+host-setup: ## UFW rules + Docker-waits-for-Tailscale drop-in (sudo)
+	./scripts/host-setup.sh
 
 up: ## Build and start
 	$(COMPOSE) up -d --build

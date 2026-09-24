@@ -61,14 +61,26 @@ tests/        pytest, with recorded-format fixtures (no live API calls)
 cd ~/docker
 git clone <this repo> newsroom
 cd newsroom
-make init        # creates /storage/newsroom/*, chowns to UID 10001, writes .env (asks for sudo)
-make up          # builds and starts both containers
-make verify      # checks 8081 answers on Tailscale and NOT on the LAN
+make setup CONTACT_EMAIL=you@example.org
 ```
 
-`make init` fills `TAILSCALE_IP` from `tailscale ip -4` and asks for a contact
-email (required by Wikimedia and SEC for API use, sent only in the User-Agent to those APIs).
-Re-running it never overwrites an existing `.env`.
+`make setup` runs the following steps. Each one is safe to re-run, and each is also a
+target of its own:
+
+1. **`make init`:** writes `.env` (mode 600) with `TAILSCALE_IP` from `tailscale ip -4` and your
+   contact email, then creates `/storage/newsroom/{db,backups,logos}` owned by UID 10001.
+   It never overwrites other values in an existing `.env`.
+2. **`make host-setup`:** adds the UFW rules (allow 8081 on `tailscale0`, deny it elsewhere) and
+   installs a systemd drop-in so Docker waits for Tailscale at boot. It needs sudo and doesn't
+   restart Docker. The optional DOCKER-USER rule stays manual (docs/security.md, section 3).
+3. **`make test`:** lint and tests in a Docker build stage.
+4. **`up --wait`:** builds, starts, and waits until both containers are healthy.
+5. **`make verify`:** checks 8081 answers on Tailscale and not on the LAN or localhost.
+6. **`config check`:** validates the YAML files.
+
+The contact email goes into the User-Agent of outbound API requests (GDELT, Wikidata/Commons,
+SEC, ProPublica), as Wikimedia's and SEC's policies require. It's never shown on the site,
+and it lives only in `.env`, which is gitignored.
 
 Then add `http://<tailscale-ip>:8081/healthz` to your service-check script.
 

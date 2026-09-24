@@ -16,6 +16,18 @@
 #   source_url: the document (or page) the figure comes from
 #   retrieved:  date you checked the source, YYYY-MM-DD
 #
+# Where to find figures for outlets in outlets.yaml (checked 2026-09-24; figures
+# deliberately not pre-filled because the source documents could not be read here):
+#   cbc.ca / radio-canada.ca  CBC/Radio-Canada annual reports, "Parliamentary appropriations"
+#                             in the financial statements:
+#                             https://cbc.radio-canada.ca/en/impact-and-accountability/finance/annual-reports
+#   npr.org / pbs.org         Federal funding via the Corporation for Public Broadcasting was
+#                             rescinded in July 2025 and CPB is winding down, so there is no
+#                             current appropriation to record. Background:
+#                             https://cpb.org/spotlight/impact-federal-rescission-public-media
+#   voanews.com               Funded through US Agency for Global Media appropriations; check
+#                             current status on usagm.gov / congress.gov before adding.
+#
 # Check with: docker compose exec worker newsroom config check
 # Applied on the next ownership/funding run, or now with: make funding
 #
