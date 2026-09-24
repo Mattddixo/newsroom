@@ -34,8 +34,8 @@ def sync_config(settings: Settings) -> Tagger:
     return Tagger(tags)
 
 
-def ingest_articles(settings: Settings) -> ingest.RunSummary:
-    with ingest.ingest_lock(settings.lock_path):
+def ingest_articles(settings: Settings, *, wait: float = 0) -> ingest.RunSummary:
+    with ingest.ingest_lock(settings.lock_path, wait):
         tagger = sync_config(settings)
         conn = connect(settings.db_path)
         client = ApiClient(settings.user_agent, min_interval=settings.gdelt_min_interval)
@@ -80,12 +80,16 @@ def wikidata_client(settings: Settings) -> ApiClient:
 
 
 def resolve_ownership(
-    settings: Settings, domains: list[str] | None = None, *, rematch: bool = True
+    settings: Settings,
+    domains: list[str] | None = None,
+    *,
+    rematch: bool = True,
+    wait: float = 0,
 ) -> ownership.ResolveSummary:
     """Match and resolve outlets that are due (or the given domains), then refresh logos."""
     now = datetime.now(UTC).replace(microsecond=0)
     client = wikidata_client(settings)
-    with ingest.ingest_lock(settings.lock_path):
+    with ingest.ingest_lock(settings.lock_path, wait):
         sync_config(settings)
         conn = connect(settings.db_path)
         try:
@@ -117,7 +121,9 @@ def resolve_ownership(
     return summary
 
 
-def refresh_funding(settings: Settings, *, force: bool = False) -> funding.FundingSummary:
+def refresh_funding(
+    settings: Settings, *, force: bool = False, wait: float = 0
+) -> funding.FundingSummary:
     """Look up funding records for identifiers that are due, and sync the curated file."""
     if not settings.contact_email:
         raise ConfigError("CONTACT_EMAIL must be set in .env before querying SEC or ProPublica")
@@ -130,7 +136,7 @@ def refresh_funding(settings: Settings, *, force: bool = False) -> funding.Fundi
         "us_ein": lambda v: funding_sources.fetch_propublica(propublica, v),
         "ca_bn": funding_sources.cra_records,
     }
-    with ingest.ingest_lock(settings.lock_path):
+    with ingest.ingest_lock(settings.lock_path, wait):
         conn = connect(settings.db_path)
         try:
             summary = funding.refresh_funding(

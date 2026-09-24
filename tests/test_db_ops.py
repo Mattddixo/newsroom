@@ -106,3 +106,23 @@ def test_status_command(
     assert "last full run:   never" in out
     assert "newsroom-" in out and "1 kept" in out
     assert "CONTACT_EMAIL is not set" in out
+
+
+def test_status_shows_running_run(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from newsroom import cli
+    from newsroom.settings import Settings
+
+    settings = Settings(data_dir=tmp_path)
+    monkeypatch.setattr(cli, "get_settings", lambda: settings)
+    conn = connect(settings.db_path)
+    migrate(conn)
+    conn.execute(
+        "INSERT INTO ingest_runs (source, started_at, window_start, window_end, status)"
+        " VALUES ('gdelt', '2026-09-24T10:00:00Z', 'a', 'b', 'running')"
+    )
+    conn.close()
+    with pytest.raises(SystemExit):
+        cli.main(["status"])
+    assert "current run:     running since 2026-09-24T10:00:00Z" in capsys.readouterr().out

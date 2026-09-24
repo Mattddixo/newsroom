@@ -27,6 +27,11 @@ log = logging.getLogger(__name__)
 
 HEARTBEAT = Path("/tmp/newsroom-worker.heartbeat")  # noqa: S108 - tmpfs inside the container
 HEARTBEAT_MAX_AGE = 180
+# Scheduled jobs queue behind each other rather than being skipped: the first
+# ingestion (72 h backfill) can take half an hour, and a skipped ownership run
+# would otherwise not come round again for 6 hours.
+INGEST_WAIT = 30 * 60
+RECORDS_WAIT = 90 * 60
 
 
 def beat(path: Path = HEARTBEAT) -> None:
@@ -49,19 +54,19 @@ def run_backup(settings: Settings) -> None:
 
 def run_ingest(settings: Settings) -> None:
     try:
-        jobs.ingest_articles(settings)
+        jobs.ingest_articles(settings, wait=INGEST_WAIT)
     except IngestBusy:
-        log.info("ingest skipped: another run is in progress")
+        log.warning("ingest skipped: another job held the lock for 30 minutes")
     except Exception:
         log.exception("ingest failed")
 
 
 def run_ownership(settings: Settings) -> None:
     try:
-        jobs.resolve_ownership(settings)
-        jobs.refresh_funding(settings)
+        jobs.resolve_ownership(settings, wait=RECORDS_WAIT)
+        jobs.refresh_funding(settings, wait=RECORDS_WAIT)
     except IngestBusy:
-        log.info("ownership/funding refresh skipped: another job holds the lock")
+        log.warning("ownership/funding refresh skipped: another job held the lock for 90 minutes")
     except Exception:
         log.exception("ownership/funding refresh failed")
 

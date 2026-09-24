@@ -208,3 +208,34 @@ def test_ingest_lock(tmp_path: Path) -> None:
         pass
     with ingest_lock(lock):  # released
         pass
+
+
+def test_ingest_lock_waits_for_release(tmp_path: Path) -> None:
+    import fcntl
+
+    lock = tmp_path / "ingest.lock"
+    holder = lock.open("w")
+    fcntl.flock(holder, fcntl.LOCK_EX)
+    sleeps: list[float] = []
+
+    def sleep(seconds: float) -> None:  # the other job finishes during our first wait
+        sleeps.append(seconds)
+        fcntl.flock(holder, fcntl.LOCK_UN)
+
+    with ingest_lock(lock, wait=60, poll=5, sleep=sleep):
+        pass
+    assert sleeps == [5]
+    holder.close()
+
+
+def test_ingest_lock_gives_up_after_wait(tmp_path: Path) -> None:
+    import fcntl
+
+    lock = tmp_path / "ingest.lock"
+    holder = lock.open("w")
+    fcntl.flock(holder, fcntl.LOCK_EX)
+    sleeps: list[float] = []
+    with pytest.raises(IngestBusy), ingest_lock(lock, wait=15, poll=5, sleep=sleeps.append):
+        pass
+    assert sleeps == [5, 5, 5]
+    holder.close()

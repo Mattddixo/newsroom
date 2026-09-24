@@ -11,7 +11,8 @@ from __future__ import annotations
 import fcntl
 import logging
 import sqlite3
-from collections.abc import Iterator, Sequence
+import time
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -40,14 +41,32 @@ class IngestBusy(RuntimeError):
 
 
 @contextmanager
-def ingest_lock(path: Path) -> Iterator[None]:
-    """Only one ingestion at a time (worker schedule vs. `newsroom ingest`)."""
+def ingest_lock(
+    path: Path,
+    wait: float = 0,
+    poll: float = 5.0,
+    sleep: Callable[[float], None] = time.sleep,
+) -> Iterator[None]:
+    """One writing job at a time (ingest, ownership, funding, retag; worker or CLI).
+
+    With `wait`, keep trying for that many seconds before giving up, so a scheduled
+    job queues behind a long-running one instead of being skipped."""
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w") as handle:
-        try:
-            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError as exc:
-            raise IngestBusy("another ingestion is running") from exc
+        waited = 0.0
+        while True:
+            try:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError as exc:
+                if waited >= wait:
+                    raise IngestBusy(
+                        "another job (ingest, ownership or funding) is running; try again shortly"
+                    ) from exc
+                if waited == 0:
+                    log.info("waiting for another job to finish", extra={"max_wait_s": wait})
+                sleep(poll)
+                waited += poll
         try:
             yield
         finally:

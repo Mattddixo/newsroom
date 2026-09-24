@@ -292,7 +292,7 @@ def cmd_status(_: argparse.Namespace) -> int:
     try:
         one = lambda sql: conn.execute(sql).fetchone()  # noqa: E731
         run = one(
-            "SELECT status, finished_at, inserted, query_errors FROM ingest_runs"
+            "SELECT status, started_at, finished_at, inserted, query_errors FROM ingest_runs"
             " ORDER BY id DESC LIMIT 1"
         )
         ok = one("SELECT max(finished_at) FROM ingest_runs WHERE status = 'ok'")[0]
@@ -313,10 +313,15 @@ def cmd_status(_: argparse.Namespace) -> int:
     backups = sorted(settings.backup_dir.glob("newsroom-*.sqlite3"))
     print("Ingestion")
     if run:
-        print(
-            f"  last run:        {run['status']} at {run['finished_at'] or '(running)'},"
-            f" {run['inserted']} new, {run['query_errors']} failed queries"
-        )
+        if run["status"] == "running":
+            print(
+                f"  current run:     running since {run['started_at']} (articles grow as it goes)"
+            )
+        else:
+            print(
+                f"  last run:        {run['status']} at {run['finished_at']},"
+                f" {run['inserted']} new, {run['query_errors']} failed queries"
+            )
     print(f"  last full run:   {ok or 'never'}")
     print(f"  articles:        {arts[0]} (newest {arts[1] or '-'})")
     print("Ownership")
