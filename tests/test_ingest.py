@@ -136,10 +136,18 @@ def test_interrupted_run_is_closed_out(conn: sqlite3.Connection) -> None:
     assert statuses == ["failed", "ok"]
 
 
-def test_window_is_capped(conn: sqlite3.Connection) -> None:
+def test_catch_up_never_reaches_past_the_backfill(conn: sqlite3.Connection) -> None:
+    run_ingest(conn, FakeSource([]), Tagger(TAGS), now=NOW - timedelta(days=10))
+    # ten days of downtime: the next run still only goes back the backfill window
+    late = FakeSource([])
+    run_ingest(conn, late, Tagger(TAGS), now=NOW, backfill=timedelta(hours=48))
+    assert late.calls[0][0] == NOW - timedelta(hours=48)
+
+
+def test_default_backfill_is_48_hours(conn: sqlite3.Connection) -> None:
     source = FakeSource([])
-    run_ingest(conn, source, Tagger(TAGS), now=NOW, backfill=timedelta(days=90))
-    assert source.calls[0][0] == NOW - timedelta(days=7)
+    run_ingest(conn, source, Tagger(TAGS), now=NOW)
+    assert source.calls[0][0] == NOW - timedelta(hours=48)
 
 
 def test_outlet_sync_deactivates_removed(conn: sqlite3.Connection) -> None:
@@ -314,7 +322,9 @@ def test_first_run_uses_backfill_then_cursors(conn: sqlite3.Connection) -> None:
         "radio-canada.ca": "2026-09-24T12:00:00Z",
     }
     second = PerGroupSource()
-    run_ingest(conn, second, Tagger(TAGS), now=NOW + timedelta(hours=1))
+    run_ingest(
+        conn, second, Tagger(TAGS), now=NOW + timedelta(hours=1), backfill=timedelta(hours=72)
+    )
     # still owed its backfill (measured from this run)
     assert second.starts["cbc.ca"] == NOW + timedelta(hours=1) - timedelta(hours=72)
     assert second.starts["nytimes.com"] == NOW - timedelta(hours=1)  # cursor minus overlap

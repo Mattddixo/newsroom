@@ -164,11 +164,15 @@ def run_ingest(
     tagger: Tagger,
     *,
     now: datetime | None = None,
-    backfill: timedelta = timedelta(hours=72),
+    backfill: timedelta = timedelta(hours=48),
     overlap: timedelta = timedelta(hours=1),
-    max_window: timedelta = timedelta(days=7),
+    max_window: timedelta | None = None,
 ) -> RunSummary:
+    """`backfill`: how far back an outlet's first fetch reaches. `max_window`: how far back
+    a lagging outlet may catch up (defaults to `backfill`, so ingestion never reaches
+    further back than the first run did)."""
     now = (now or datetime.now(UTC)).replace(microsecond=0)
+    max_window = max_window or backfill
     # A previous process that died mid-run leaves a 'running' row; close it out.
     conn.execute(
         "UPDATE ingest_runs SET status = 'failed', error = 'interrupted' "

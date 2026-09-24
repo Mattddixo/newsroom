@@ -130,7 +130,7 @@ for Tailscale at boot.
 | `ENABLE_HSTS`     | `false`            | Only turn on once served over HTTPS                          |
 | `INGEST_INTERVAL_MINUTES` | `15`       | How often the worker ingests (GDELT updates every 15 min)    |
 | `INGEST_OFFSET_MINUTES` | `3`          | Minutes after each GDELT update to run (→ :03, :18, :33, :48) |
-| `INGEST_BACKFILL_HOURS`   | `72`       | How far back the very first run reaches                      |
+| `INGEST_BACKFILL_HOURS`   | `48`       | How far back ingestion ever reaches (first run, and catch-up after downtime) |
 | `RETENTION_DAYS`  | `365`              | Articles older than this are deleted nightly (0 = keep forever) |
 | `GDELT_GROUP_SIZE`| `8`                | Outlets per GDELT query                                      |
 | `GDELT_MIN_INTERVAL` | `6`             | Seconds between GDELT requests (GDELT asks for ≥ 5)          |
@@ -169,7 +169,7 @@ tracking parameters, fragments and trailing slashes.
   the publication time from each new article's page metadata (schema.org `datePublished`,
   `article:published_time`, a few other standard tags) and cards show **Published …**. If the
   page gives no usable date, cards show **Seen …** (GDELT's time). Limits: articles from the
-  last `PUBDATE_MAX_AGE_DAYS` (3) only, at most `PUBDATE_PER_RUN` (150) pages per run, one
+  last `PUBDATE_MAX_AGE_DAYS` (1) only, at most `PUBDATE_PER_RUN` (150) pages per run, one
   request per second, robots.txt obeyed, sites that answer 403/429/5xx left alone for the run,
   at most two tries per page, only the first 1.5 MB read and only the date kept. Turn it off
   with `PUBDATE_FETCH=false`. Run it by hand with `docker compose exec worker newsroom pubdates`.

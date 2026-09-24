@@ -58,6 +58,9 @@ class FeedFilters:
         sort = params.get("sort", "newest")
         if sort not in SORTS or (sort == "relevance" and not q):
             sort = "newest"
+        date_from, date_to = _date(params.get("from", "")), _date(params.get("to", ""))
+        if date_from and date_to and date_from > date_to:  # picked the wrong way round
+            date_from, date_to = date_to, date_from
         page = _int(params.get("page", ""), 1)
         per = _int(params.get("per", ""), DEFAULT_PAGE_SIZE)
         return cls(
@@ -66,8 +69,8 @@ class FeedFilters:
             outlet=outlet if _DOMAIN.match(outlet) else "",
             country=country if re.fullmatch(r"[A-Z]{2}", country) else "",
             owner=owner if QID_RE.match(owner) else "",
-            date_from=_date(params.get("from", "")),
-            date_to=_date(params.get("to", "")),
+            date_from=date_from,
+            date_to=date_to,
             sort=sort,
             page=page if 1 <= page <= MAX_PAGE else 1,
             per=per if per in PAGE_SIZES else DEFAULT_PAGE_SIZE,

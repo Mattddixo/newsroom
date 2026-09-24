@@ -42,14 +42,14 @@ class Settings:
     backup_keep: int = 14
     ingest_interval_minutes: int = 15  # GDELT updates every 15 minutes
     ingest_offset_minutes: int = 3  # run this long after each GDELT update
-    ingest_backfill_hours: int = 72
+    ingest_backfill_hours: int = 48
     retention_days: int = 365
     gdelt_group_size: int = 8
     gdelt_min_interval: float = 6.0
     ownership_refresh_days: int = 7
     pubdate_fetch: bool = True  # read publication dates from article pages
     pubdate_per_run: int = 150
-    pubdate_max_age_days: int = 3
+    pubdate_max_age_days: int = 1
     wikidata_min_interval: float = 1.0
 
     @property
@@ -91,14 +91,14 @@ def load_settings() -> Settings:
         backup_keep=int(env.get("BACKUP_KEEP", "14")),
         ingest_interval_minutes=int(env.get("INGEST_INTERVAL_MINUTES", "15")),
         ingest_offset_minutes=int(env.get("INGEST_OFFSET_MINUTES", "3")),
-        ingest_backfill_hours=int(env.get("INGEST_BACKFILL_HOURS", "72")),
+        ingest_backfill_hours=int(env.get("INGEST_BACKFILL_HOURS", "48")),
         retention_days=int(env.get("RETENTION_DAYS", "365")),
         gdelt_group_size=int(env.get("GDELT_GROUP_SIZE", "8")),
         gdelt_min_interval=float(env.get("GDELT_MIN_INTERVAL", "6")),
         ownership_refresh_days=int(env.get("OWNERSHIP_REFRESH_DAYS", "7")),
         pubdate_fetch=_bool(env.get("PUBDATE_FETCH"), True),
         pubdate_per_run=int(env.get("PUBDATE_PER_RUN", "150")),
-        pubdate_max_age_days=int(env.get("PUBDATE_MAX_AGE_DAYS", "3")),
+        pubdate_max_age_days=int(env.get("PUBDATE_MAX_AGE_DAYS", "1")),
         wikidata_min_interval=float(env.get("WIKIDATA_MIN_INTERVAL", "1")),
     )
 
