@@ -128,6 +128,7 @@ for Tailscale at boot.
 | `TRUSTED_PROXIES` | (empty)            | CIDRs whose `CF-Connecting-IP`/`X-Forwarded-For` is trusted (going public) |
 | `ENABLE_HSTS`     | `false`            | Only turn on once served over HTTPS                          |
 | `INGEST_INTERVAL_MINUTES` | `15`       | How often the worker ingests (GDELT updates every 15 min)    |
+| `INGEST_OFFSET_MINUTES` | `3`          | Minutes after each GDELT update to run (→ :03, :18, :33, :48) |
 | `INGEST_BACKFILL_HOURS`   | `72`       | How far back the very first run reaches                      |
 | `RETENTION_DAYS`  | `365`              | Articles older than this are deleted nightly (0 = keep forever) |
 | `GDELT_GROUP_SIZE`| `8`                | Outlets per GDELT query                                      |
@@ -278,7 +279,7 @@ Run inside the worker: `docker compose exec worker newsroom <command>`.
 
   | Job | When |
   |---|---|
-  | Ingestion | Every 15 min, first run 30 s after start |
+  | Ingestion | :03, :18, :33, :48 each hour (3 min after each GDELT update), plus once 30 s after start |
   | Ownership + funding | Every 6 h for records older than 7 days, first run 3 min after start |
   | Backup | 03:00 |
   | Retention prune | 03:30 |

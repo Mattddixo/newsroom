@@ -41,6 +41,7 @@ class Settings:
     backup_hour: int = 3
     backup_keep: int = 14
     ingest_interval_minutes: int = 15  # GDELT updates every 15 minutes
+    ingest_offset_minutes: int = 3  # run this long after each GDELT update
     ingest_backfill_hours: int = 72
     retention_days: int = 365
     gdelt_group_size: int = 8
@@ -86,6 +87,7 @@ def load_settings() -> Settings:
         backup_hour=int(env.get("BACKUP_HOUR", "3")),
         backup_keep=int(env.get("BACKUP_KEEP", "14")),
         ingest_interval_minutes=int(env.get("INGEST_INTERVAL_MINUTES", "15")),
+        ingest_offset_minutes=int(env.get("INGEST_OFFSET_MINUTES", "3")),
         ingest_backfill_hours=int(env.get("INGEST_BACKFILL_HOURS", "72")),
         retention_days=int(env.get("RETENTION_DAYS", "365")),
         gdelt_group_size=int(env.get("GDELT_GROUP_SIZE", "8")),

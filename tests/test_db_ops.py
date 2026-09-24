@@ -126,3 +126,40 @@ def test_status_shows_running_run(
     with pytest.raises(SystemExit):
         cli.main(["status"])
     assert "current run:     running since 2026-09-24T10:00:00Z" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    ("interval", "offset", "expected"),
+    [
+        (15, 3, ["00:03", "00:18", "00:33", "00:48", "01:03"]),
+        (15, 0, ["00:15", "00:30", "00:45", "01:00", "01:15"]),
+        (30, 5, ["00:05", "00:35", "01:05", "01:35", "02:05"]),
+        (60, 3, ["00:03", "01:03", "02:03", "03:03", "04:03"]),
+        (15, 20, ["00:05", "00:20", "00:35", "00:50", "01:05"]),  # offset wraps to 5
+        (120, 3, ["00:03", "02:03", "04:03", "06:03", "08:03"]),
+    ],
+)
+def test_ingest_runs_on_the_clock(interval: int, offset: int, expected: list[str]) -> None:
+    from newsroom.settings import Settings
+    from newsroom.worker import ingest_trigger
+
+    trigger = ingest_trigger(
+        Settings(ingest_interval_minutes=interval, ingest_offset_minutes=offset)
+    )
+    now = datetime(2026, 9, 24, 0, 0, 1, tzinfo=UTC)
+    times, previous = [], None
+    for _ in range(5):
+        now = trigger.get_next_fire_time(previous, now)
+        times.append(now.astimezone(UTC).strftime("%H:%M"))
+        previous = now
+        now = now + timedelta(seconds=1)
+    assert times == expected
+
+
+def test_odd_interval_falls_back_to_timer() -> None:
+    from apscheduler.triggers.interval import IntervalTrigger
+
+    from newsroom.settings import Settings
+    from newsroom.worker import ingest_trigger
+
+    assert isinstance(ingest_trigger(Settings(ingest_interval_minutes=7)), IntervalTrigger)

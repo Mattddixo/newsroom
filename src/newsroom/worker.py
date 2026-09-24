@@ -78,6 +78,19 @@ def run_prune(settings: Settings) -> None:
         log.exception("prune failed")
 
 
+def ingest_trigger(settings: Settings) -> CronTrigger | IntervalTrigger:
+    """Run on the clock, a few minutes after GDELT publishes (it updates at :00, :15,
+    :30 and :45 UTC). Every 15 min with offset 3 -> :03, :18, :33, :48. Intervals that
+    don't divide an hour or a day fall back to a plain timer."""
+    every = max(1, settings.ingest_interval_minutes)
+    offset = settings.ingest_offset_minutes % min(every, 60)
+    if every < 60 and 60 % every == 0:
+        return CronTrigger(minute=f"{offset}-59/{every}", timezone="UTC")
+    if every % 60 == 0 and 1440 % every == 0:  # hourly, every 2 h, ...
+        return CronTrigger(hour=f"*/{every // 60}", minute=offset, timezone="UTC")
+    return IntervalTrigger(minutes=every)
+
+
 def build_scheduler(settings: Settings) -> BlockingScheduler:
     scheduler = BlockingScheduler(
         timezone=settings.timezone,
@@ -92,7 +105,7 @@ def build_scheduler(settings: Settings) -> BlockingScheduler:
     )
     scheduler.add_job(
         run_ingest,
-        IntervalTrigger(minutes=settings.ingest_interval_minutes),
+        ingest_trigger(settings),
         args=[settings],
         id="ingest",
         next_run_time=datetime.now().astimezone() + timedelta(seconds=30),
