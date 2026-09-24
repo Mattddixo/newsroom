@@ -37,7 +37,7 @@
     {%- if step.edge.start_date %} <span class="muted">since {{ step.edge.start_date }}</span>{% endif %}
     {%- if step.parent.kind %} <span class="muted">· {{ step.parent.kind }}{% if step.parent.country %}, {{ step.parent.country }}{% endif %}</span>{% endif %}
     <span class="src">Source: <a href="{{ step.edge.source_url }}" target="_blank" rel="noopener noreferrer">{% if step.edge.source == "wikidata" %}Wikidata {{ step.edge.source_url.rsplit('/', 1)[-1] }}{% else %}{{ step.edge.source_url }}{% endif %}</a>, retrieved {{ step.edge.retrieved_at[:10] }}{% if step.edge.source == "manual" %} (added manually){% endif %}</span>
-    {% if step.cycle %}<span class="muted">(already listed above: the records form a loop)</span>
+    {% if step.cycle %}<span class="muted">(already listed above; the records loop back)</span>
     {% elif step.above %}{{ chain(step.above) }}{% endif %}
   </li>
   {% endfor %}
@@ -78,7 +78,7 @@
 {% macro article_link(url, title, language) -%}
 <div class="headline">
   <a class="title" href="{{ url }}" rel="noopener noreferrer"{% if language and language != "en" %} lang="{{ language }}"{% endif %}>{{ title }}</a>
-  <a class="open-new" href="{{ url }}" target="_blank" rel="noopener noreferrer" aria-label="Open in a new tab: {{ title }}" title="Opens in a new tab. To open in the background instead, middle-click or Ctrl/⌘-click the headline.">Open <span aria-hidden="true">↗</span></a>
+  <a class="open-new" href="{{ url }}" target="_blank" rel="noopener noreferrer" aria-label="Open in a new tab: {{ title }}" title="Open in a new tab">Open <span aria-hidden="true">↗</span></a>
 </div>
 {%- endmacro %}
 
@@ -95,8 +95,8 @@
    otherwise "Seen" (when GDELT first saw the article). #}
 {% macro article_when(when, kind) -%}
 {% if kind == "published" -%}
-<span class="when" title="Publication time from the article page's own metadata.">Published <time datetime="{{ when.isoformat() }}">{{ when | article_date }}</time></span>
+<span class="when" title="Publication time given on the article page">Published <time datetime="{{ when.isoformat() }}">{{ when | article_date }}</time></span>
 {%- else -%}
-<span class="when" title="When GDELT first saw this article. The article page did not give a publication time (yet).">Seen <time datetime="{{ when.isoformat() }}">{{ when | article_date }}</time></span>
+<span class="when" title="When this article was first picked up. The page gave no publication date.">Seen <time datetime="{{ when.isoformat() }}">{{ when | article_date }}</time></span>
 {%- endif %}
 {%- endmacro %}

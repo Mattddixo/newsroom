@@ -267,7 +267,7 @@ def test_empty_database_state(tmp_path: Path) -> None:
     client = TestClient(create_app(Settings(data_dir=tmp_path)))
     resp = client.get("/")
     assert resp.status_code == 200
-    assert "No data yet" in resp.text
+    assert "No articles yet" in resp.text
 
 
 def test_fts_query_builder() -> None:

@@ -93,12 +93,12 @@
 </form>
 
 {% if page is none %}
-  <p class="empty">No data yet. The worker creates the database and runs the first ingestion within a minute of starting.</p>
+  <p class="empty">No articles yet. Check back in a few minutes.</p>
 {% elif not page.groups %}
   {% if filters.active %}
   <p class="empty">No articles match these filters. <a href="/">Clear filters</a></p>
   {% else %}
-  <p class="empty">No articles yet. Ingestion runs every {{ interval }} minutes; the first run starts shortly after the worker starts.</p>
+  <p class="empty">No articles yet. Check back in a few minutes.</p>
   {% endif %}
 {% else %}
   {% if page.page == 1 and filters.sort == "newest" and not filters.q %}
@@ -137,6 +137,6 @@
 {% endif %}
 
 {% if last_ingest %}
-<p class="meta-note">Last updated {{ last_ingest.strftime('%Y-%m-%d %H:%M %Z') }}; new articles are fetched every {{ interval }} minutes.{% if stale %} Updates are currently delayed.{% endif %}</p>
+<p class="meta-note">Updated {{ last_ingest.strftime('%Y-%m-%d %H:%M %Z') }}. New articles are added every {{ interval }} minutes.{% if stale %} Updates are delayed right now.{% endif %}</p>
 {% endif %}
 {% endblock %}

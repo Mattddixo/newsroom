@@ -287,13 +287,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.exception_handler(StarletteHTTPException)
     async def http_error(request: Request, exc: StarletteHTTPException) -> Response:
-        message = "Page not found." if exc.status_code == 404 else "Request could not be served."
+        message = "Page not found." if exc.status_code == 404 else "That request didn't work."
         return _error(request, exc.status_code, message)
 
     @app.exception_handler(Exception)
     async def server_error(request: Request, exc: Exception) -> Response:
         log.exception("unhandled error", extra={"path": request.url.path})
-        return _error(request, 500, "Something went wrong on our side.")
+        return _error(request, 500, "Something went wrong. Please try again later.")
 
     def _error(request: Request, status: int, message: str) -> Response:
         return templates.TemplateResponse(

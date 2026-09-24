@@ -312,7 +312,7 @@ def test_ownership_fragment_links_every_claim_to_source(client: TestClient) -> N
 def test_outlet_page(client: TestClient) -> None:
     html = client.get("/outlet/exampledaily.ca").text
     assert "Example Media Group" in html
-    assert "Matched automatically by official website" in html
+    assert "Matched by website" in html
     assert "Housing news" in html
     assert "Wikimedia Commons" in html
     unmatched = client.get("/outlet/nomatch.org").text
