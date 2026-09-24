@@ -314,6 +314,15 @@ def cmd_status(_: argparse.Namespace) -> int:
             )
         ]
         active = one("SELECT count(*) FROM outlets WHERE active = 1")[0]
+        recent_after = (now - timedelta(days=settings.pubdate_max_age_days)).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        )
+        pub = conn.execute(
+            "SELECT count(*), count(outlet_published_at),"
+            " sum(outlet_published_at IS NULL AND pubdate_attempts >= 2)"
+            " FROM articles WHERE published_at >= ?",
+            (recent_after,),
+        ).fetchone()
         matches = dict(
             conn.execute(
                 "SELECT match_status, count(*) FROM outlets WHERE active = 1 GROUP BY 1"
@@ -343,6 +352,10 @@ def cmd_status(_: argparse.Namespace) -> int:
     print(f"  last full run:   {ok or 'never'}")
     print(f"  articles:        {arts[0]} (newest {arts[1] or '-'})")
     print(f"  outlets current: {active - len(behind)} of {active}")
+    print(
+        f"  pub. dates:      {pub[1]} of {pub[0]} recent articles"
+        f" ({pub[2] or 0} pages give none; the rest show GDELT's 'Seen' time)"
+    )
     if behind:
         shown = ", ".join(behind[:6]) + (f" and {len(behind) - 6} more" if len(behind) > 6 else "")
         print(f"  behind:          {shown}")
@@ -364,6 +377,16 @@ def cmd_status(_: argparse.Namespace) -> int:
         print("  latest:          none yet (nightly at BACKUP_HOUR, or: newsroom backup)")
     if not settings.contact_email:
         print("\nWarning: CONTACT_EMAIL is not set; ownership and funding lookups are disabled.")
+    return 0
+
+
+def cmd_pubdates(args: argparse.Namespace) -> int:
+    s = jobs.publication_dates(get_settings(), args.limit)
+    print(
+        f"Pages read: {s.checked}. Dates found: {s.found}; no date on page: {s.no_date};"
+        f" robots.txt disallows: {s.robots_disallowed}; failed: {s.failed}"
+        f" ({s.hosts_skipped} site(s) left alone for this run)."
+    )
     return 0
 
 
@@ -405,6 +428,9 @@ def build_parser() -> argparse.ArgumentParser:
         func=cmd_status
     )
     sub.add_parser("ingest", help="fetch new articles now").set_defaults(func=cmd_ingest)
+    pub = sub.add_parser("pubdates", help="read publication dates from recent article pages now")
+    pub.add_argument("--limit", type=int, default=None, help="pages to read (default 150)")
+    pub.set_defaults(func=cmd_pubdates)
     sub.add_parser("retag", help="recompute tags after editing tags.yaml").set_defaults(
         func=cmd_retag
     )

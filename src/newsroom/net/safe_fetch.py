@@ -33,7 +33,12 @@ IMAGE_TYPES = frozenset({"image/png", "image/jpeg", "image/gif", "image/webp"})
 
 
 class FetchBlocked(Exception):
-    """The request was refused by a guard. The message says which one."""
+    """The request was refused by a guard. The message says which one.
+    `status` is the HTTP status when the server answered with a non-200."""
+
+    def __init__(self, message: str, status: int | None = None) -> None:
+        super().__init__(message)
+        self.status = status
 
 
 @dataclass(frozen=True)
@@ -92,7 +97,7 @@ def _check_url(url: str, allowlist: Iterable[str]) -> tuple[str, str, int]:
 
 
 def _pinned_request(
-    client: httpx.Client, url: str, host: str, ip: str, max_bytes: int
+    client: httpx.Client, url: str, host: str, ip: str, max_bytes: int, truncate: bool
 ) -> tuple[httpx.Response, bytes]:
     parts = urlsplit(url)
     ip_host = f"[{ip}]" if ":" in ip else ip
@@ -107,14 +112,17 @@ def _pinned_request(
     response = client.send(request, stream=True)
     try:
         declared = response.headers.get("content-length")
-        if declared and declared.isdigit() and int(declared) > max_bytes:
+        if not truncate and declared and declared.isdigit() and int(declared) > max_bytes:
             raise FetchBlocked(f"response too large: {declared} bytes")
         chunks: list[bytes] = []
         total = 0
         for chunk in response.iter_bytes():
-            total += len(chunk)
-            if total > max_bytes:
+            if total + len(chunk) > max_bytes:
+                if truncate:  # keep the first max_bytes and stop downloading
+                    chunks.append(chunk[: max_bytes - total])
+                    break
                 raise FetchBlocked(f"response exceeds {max_bytes} bytes")
+            total += len(chunk)
             chunks.append(chunk)
         return response, b"".join(chunks)
     finally:
@@ -131,7 +139,10 @@ def safe_fetch(
     user_agent: str = "newsroom/0.1",
     resolver: Resolver = system_resolver,
     transport: httpx.BaseTransport | None = None,
+    truncate: bool = False,
 ) -> FetchResult:
+    """Fetch under all the guards above. With `truncate`, a body longer than `max_bytes`
+    is cut off there instead of refused (for reading just the start of an HTML page)."""
     allowlist = tuple(allowlist)
     allowed = frozenset(t.lower() for t in allowed_types)
     with httpx.Client(
@@ -154,7 +165,9 @@ def safe_fetch(
                 if not ip_is_public(address):
                     raise FetchBlocked(f"{host} resolves to non-public address {address}")
             try:
-                response, body = _pinned_request(client, current, host, addresses[0], max_bytes)
+                response, body = _pinned_request(
+                    client, current, host, addresses[0], max_bytes, truncate
+                )
             except httpx.HTTPError as exc:
                 raise FetchBlocked(f"request failed: {type(exc).__name__}") from exc
             if response.is_redirect:
@@ -164,7 +177,9 @@ def safe_fetch(
                 current = urljoin(current, location)
                 continue
             if response.status_code != 200:
-                raise FetchBlocked(f"unexpected status {response.status_code}")
+                raise FetchBlocked(
+                    f"unexpected status {response.status_code}", status=response.status_code
+                )
             content_type = response.headers.get("content-type", "").split(";")[0].strip().lower()
             if content_type not in allowed:
                 raise FetchBlocked(f"content-type not allowed: {content_type or '(none)'}")

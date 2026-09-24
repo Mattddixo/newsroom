@@ -3,17 +3,19 @@
 from __future__ import annotations
 
 import logging
+import sqlite3
 from datetime import UTC, datetime, timedelta
 
 from newsroom.config import ConfigError, load_curated_funding, load_outlets, load_tags
 from newsroom.db import connect
 from newsroom.net.http import ApiClient
-from newsroom.net.safe_fetch import safe_fetch
-from newsroom.services import funding, ingest, ownership
+from newsroom.net.safe_fetch import FetchResult, safe_fetch
+from newsroom.services import funding, ingest, ownership, pubdates
 from newsroom.services.tagging import Tagger, retag_all, sync_tags
 from newsroom.settings import Settings
 from newsroom.sources import funding as funding_sources
 from newsroom.sources.gdelt import GdeltSource
+from newsroom.sources.pubdate import Robots
 from newsroom.sources.wikidata import WikidataSource
 
 log = logging.getLogger(__name__)
@@ -41,15 +43,78 @@ def ingest_articles(settings: Settings, *, wait: float = 0) -> ingest.RunSummary
         client = ApiClient(settings.user_agent, min_interval=settings.gdelt_min_interval)
         try:
             source = GdeltSource(client, group_size=settings.gdelt_group_size)
-            return ingest.run_ingest(
+            summary = ingest.run_ingest(
                 conn,
                 source,
                 tagger,
                 backfill=timedelta(hours=settings.ingest_backfill_hours),
             )
+            _publication_dates(settings, conn)
+            return summary
         finally:
             client.close()
             conn.close()
+
+
+HTML_TYPES = frozenset({"text/html", "application/xhtml+xml"})
+_ROBOTS_CACHE: dict = {}  # robots.txt rules per host, kept for the worker's lifetime (1-day TTL)
+
+
+def _publication_dates(
+    settings: Settings, conn: sqlite3.Connection, limit: int | None = None
+) -> pubdates.PubDateSummary | None:
+    """Read publication dates for recent articles (see services/pubdates.py for limits)."""
+    if not settings.pubdate_fetch:
+        return None
+    if not settings.contact_email:
+        log.warning("publication dates skipped: CONTACT_EMAIL is not set")
+        return None
+    outlet_domains = [r[0] for r in conn.execute("SELECT domain FROM outlets WHERE active = 1")]
+
+    def robots_text(url: str) -> str:
+        page = safe_fetch(
+            url,
+            allowlist=outlet_domains,
+            allowed_types={"text/plain"},
+            max_bytes=500_000,
+            timeout=10,
+            user_agent=settings.user_agent,
+            truncate=True,
+        )
+        return page.body.decode("utf-8", errors="replace")
+
+    def page(url: str, domain: str) -> FetchResult:
+        return safe_fetch(
+            url,
+            allowlist=[domain],
+            allowed_types=HTML_TYPES,
+            max_bytes=1_500_000,
+            timeout=15,
+            user_agent=settings.user_agent,
+            truncate=True,
+        )
+
+    return pubdates.refresh_pub_dates(
+        conn,
+        page,
+        Robots(robots_text, cache=_ROBOTS_CACHE),
+        datetime.now(UTC).replace(microsecond=0),
+        limit=limit or settings.pubdate_per_run,
+        max_age=timedelta(days=settings.pubdate_max_age_days),
+    )
+
+
+def publication_dates(settings: Settings, limit: int | None = None) -> pubdates.PubDateSummary:
+    """CLI entry point: run the publication-date pass now."""
+    with ingest.ingest_lock(settings.lock_path):
+        conn = connect(settings.db_path)
+        try:
+            summary = _publication_dates(settings, conn, limit)
+        finally:
+            conn.close()
+    if summary is None:
+        raise ConfigError("publication dates are off (PUBDATE_FETCH) or CONTACT_EMAIL is not set")
+    return summary
 
 
 def retag(settings: Settings) -> int:

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import chain as render_chain, not_disclosed, no_owner, funding, article_link %}
+{% from "_macros.html" import chain as render_chain, not_disclosed, no_owner, funding, article_link, article_when %}
 {% block title %}{{ outlet.display_name }} · newsroom{% endblock %}
 {% block content %}
 <h1>{% if outlet.logo_path %}<img class="logo-lg" src="/logos/{{ outlet.logo_path }}" alt="" width="32" height="32">{% endif %}{{ outlet.display_name }}</h1>
@@ -25,9 +25,9 @@
   <h2 id="art-h">Recent articles</h2>
   {% if articles %}
   <ol class="articles compact">
-    {% for r, when in articles %}
+    {% for r, when, kind in articles %}
     <li class="article">{{ article_link(r.url, r.title, r.language) }}
-      <div class="meta"><span class="seen" title="When GDELT first saw this article. The outlet's own publication time may be earlier.">Seen <time datetime="{{ when.isoformat() }}">{{ when | article_date }}</time></span></div></li>
+      <div class="meta">{{ article_when(when, kind) }}</div></li>
     {% endfor %}
   </ol>
   <p><a href="/?outlet={{ outlet.domain }}">All articles from {{ outlet.display_name }}</a></p>

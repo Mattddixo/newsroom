@@ -28,6 +28,12 @@ _DOMAIN = re.compile(r"^[a-z0-9-]+(\.[a-z0-9-]+)+$")
 _SLUG = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 
 
+# The date the site shows, sorts and filters by: the outlet's own publication time when the
+# article page gave one, otherwise when GDELT first saw it. Matches the articles_effective_date
+# index expression.
+SHOWN_AT = "coalesce(a.outlet_published_at, a.published_at)"
+
+
 @dataclass(frozen=True)
 class FeedFilters:
     q: str = ""
@@ -129,12 +135,13 @@ class Article:
     id: int
     url: str
     title: str
-    published: datetime  # local time
+    published: datetime  # local time: the outlet's publication time if known, else first seen
     outlet_name: str
     outlet_domain: str
     outlet_entity_id: int | None = None
     logo_path: str | None = None
     language: str | None = None
+    date_kind: str = "seen"  # "published" (from the article page) | "seen" (GDELT)
     tags: list[tuple[str, str]] = field(default_factory=list)  # (slug, label)
 
 
@@ -214,10 +221,10 @@ def _conditions(
         )
         args.append(f.tag)
     if f.date_from:
-        where.append("a.published_at >= ?")
+        where.append(f"{SHOWN_AT} >= ?")
         args.append(ts(datetime.combine(f.date_from, time.min, tz)))
     if f.date_to:
-        where.append("a.published_at < ?")
+        where.append(f"{SHOWN_AT} < ?")
         args.append(ts(datetime.combine(f.date_to + timedelta(days=1), time.min, tz)))
     return where, args
 
@@ -241,13 +248,14 @@ def count_new(conn: sqlite3.Connection, f: FeedFilters, tz: ZoneInfo, since_id: 
 
 
 ORDERS = {
-    "newest": "a.published_at DESC, a.id DESC",
-    "oldest": "a.published_at ASC, a.id ASC",
-    "outlet": "o.display_name COLLATE NOCASE ASC, a.published_at DESC, a.id DESC",
-    "relevance": "articles_fts.rank, a.published_at DESC, a.id DESC",
+    "newest": f"{SHOWN_AT} DESC, a.id DESC",
+    "oldest": f"{SHOWN_AT} ASC, a.id ASC",
+    "outlet": f"o.display_name COLLATE NOCASE ASC, {SHOWN_AT} DESC, a.id DESC",
+    "relevance": f"articles_fts.rank, {SHOWN_AT} DESC, a.id DESC",
 }
 SELECT_COLUMNS = (
-    "a.id, a.url, a.title, a.published_at, o.display_name, o.domain,"
+    f"a.id, a.url, a.title, {SHOWN_AT} AS shown_at, a.outlet_published_at,"
+    " o.display_name, o.domain,"
     " o.entity_id, o.logo_path, a.language"
 )
 
@@ -283,7 +291,8 @@ def feed(conn: sqlite3.Connection, f: FeedFilters, tz: ZoneInfo) -> FeedPage:
             id=r["id"],
             url=r["url"],
             title=r["title"],
-            published=parse_ts(r["published_at"]).astimezone(tz),
+            published=parse_ts(r["shown_at"]).astimezone(tz),
+            date_kind="published" if r["outlet_published_at"] else "seen",
             outlet_name=r["display_name"],
             outlet_domain=r["domain"],
             outlet_entity_id=r["entity_id"],
@@ -453,7 +462,9 @@ def owner_options(graph: Graph, rows: list[sqlite3.Row]) -> list[tuple[str, str]
 
 def recent_articles(conn: sqlite3.Connection, outlet_id: int, limit: int = 20) -> list[sqlite3.Row]:
     return conn.execute(
-        "SELECT url, title, published_at, language FROM articles WHERE outlet_id = ?"
-        " ORDER BY published_at DESC, id DESC LIMIT ?",
+        "SELECT url, title, language, outlet_published_at,"
+        " coalesce(outlet_published_at, published_at) AS shown_at"
+        " FROM articles WHERE outlet_id = ?"
+        " ORDER BY coalesce(outlet_published_at, published_at) DESC, id DESC LIMIT ?",
         (outlet_id, limit),
     ).fetchall()

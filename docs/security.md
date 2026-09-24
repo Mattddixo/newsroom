@@ -145,7 +145,7 @@ Each requirement from the project brief, where it's implemented, and how it's ve
 | nosniff, Referrer-Policy, frame-ancestors, Permissions-Policy | `SecurityHeadersMiddleware` on every response, including static files and errors | Tests; `curl -I` against the container |
 | HSTS only behind HTTPS | `ENABLE_HSTS` (default off) | Tests |
 | External data untrusted | Jinja autoescape; URLs checked to be http(s) at ingest and by a DB CHECK constraint; titles cleaned of control characters; no remote HTML rendered; all SQL parameterised | Tests (`test_article_links_are_safe`, `test_bad_url_rejected_by_schema`, autoescape) |
-| SSRF guard | `net/safe_fetch.py`: allowlist, public-IP-only DNS with IP pinning, redirect re-checks, size/time/type caps; used for logos | 30+ tests in `test_safe_fetch.py` |
+| SSRF guard | `net/safe_fetch.py`: allowlist, public-IP-only DNS with IP pinning, redirect re-checks, size/time/type caps; used for logos, article-page dates and robots.txt | 30+ tests in `test_safe_fetch.py` |
 | Rate limiting | slowapi per client IP on all routes except `/healthz`; separate search limit; trusted-proxy aware | Tests; in Docker, through a simulated tunnel network: per-visitor buckets, spoofed headers ignored |
 | `pip-audit` + ruff in workflow | `make test` (ruff + pytest) and `make audit` Docker stages; README "Development" | `make audit`: no known vulnerabilities at the time of writing |
 | Logging | JSON, no access log, no IPs, no secrets, Docker rotation 5 × 10 MB | Review; container logs |
@@ -161,5 +161,7 @@ Each requirement from the project brief, where it's implemented, and how it's ve
   DOCKER-USER rule in section 3. The bind address is the real control.
 - **Rate-limit state:** limits are kept in memory per `web` process, so they reset on restart.
   For a public site, also set the Cloudflare rate-limiting rule in `going-public.md`.
-- **Egress:** the worker's outbound traffic isn't restricted at the network level. Only
-  fixed API hosts are contacted in code, plus Commons for logos via the allowlisted fetcher.
+- **Egress:** the worker's outbound traffic isn't restricted at the network level. In code it
+  contacts the fixed API hosts, Commons for logos, and (for publication dates) article pages
+  and robots.txt on the configured outlets' own domains. The last two go through the
+  allowlisted fetcher, limited per request to that outlet's domain.

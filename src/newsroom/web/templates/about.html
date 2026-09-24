@@ -29,7 +29,15 @@
 </dl>
 
 <h2 id="articles">Articles</h2>
-<p>Headlines come from the GDELT Project's DOC 2.0 API, queried every {{ interval }} minutes for each outlet on the list (GDELT itself updates every 15 minutes). Only metadata is kept: headline, link, outlet, language and date. No article text is stored. Links go to the original outlet. The date shown is when GDELT first saw the article, usually minutes after publication; times are in {{ request.app.state.settings.timezone }}. The same article under slightly different links (tracking parameters, "www.", trailing slashes) is shown once. Topic tags come from a published keyword list matched against headlines, not from any judgement about content.</p>
+<p>Headlines come from the GDELT Project's DOC 2.0 API, queried every {{ interval }} minutes for each outlet on the list (GDELT itself updates every 15 minutes). Only metadata is kept: headline, link, outlet, language and date. No article text is stored. Links go to the original outlet. Times are in {{ request.app.state.settings.timezone }}. The same article under slightly different links (tracking parameters, "www.", trailing slashes) is shown once. Topic tags come from a published keyword list matched against headlines, not from any judgement about content.</p>
+
+<h3 id="dates">Dates</h3>
+<p>GDELT does not report when an article was published, only when it first saw it. So for each new article the site reads the publication time from the article page's own metadata, the same tags search engines and link previews use: schema.org <code>datePublished</code>, then <code>article:published_time</code>, then a few other standard date tags. Only the date is kept. A date is used only if it includes a time zone, is not later than when GDELT saw the article, and is after 1995.</p>
+<ul>
+  <li><strong>Published …</strong> is the time the article page gives.</li>
+  <li><strong>Seen …</strong> means the page gave no usable date (or has not been checked yet), so the time GDELT first saw the article is shown instead. This can be minutes to days after publication.</li>
+</ul>
+<p>To be a considerate visitor, the site reads each page at most twice, only for articles from the last few days, at most one request per second and a limited number per run, and it follows each site's robots.txt. A site that asks it to slow down is left alone until the next run. The feed is sorted and grouped by the date shown.</p>
 
 <h2 id="ownership">Ownership</h2>
 <p>Each outlet's web domain is matched to a Wikidata item through that item's "official website" (P856). If several items claim the same website, or none does, the match is made by hand; the outlet page says how each match was made. From the outlet's item, the site follows "owned by" and "parent organization" upward, up to ten levels. Only statements Wikidata marks as current are used: deprecated statements, statements with an end date in the past, and "unknown value" statements are ignored; where Wikidata marks one statement as preferred, it is used over the others. If the records loop back on themselves, the loop is shown and not followed. Ownership is re-checked weekly. Occasionally a link missing from Wikidata is added by hand; it is labelled "added manually" and links to its own public source.</p>

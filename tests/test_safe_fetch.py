@@ -190,3 +190,28 @@ def test_timeout_becomes_blocked() -> None:
 
     with pytest.raises(FetchBlocked, match="ReadTimeout"):
         fetch("https://upload.wikimedia.org/a.png", transport=make_transport(handler))
+
+
+def test_truncate_keeps_the_start_instead_of_refusing() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200, headers={"content-type": "text/html"}, content=iter([b"a" * 600, b"b" * 600])
+        )
+
+    result = fetch(
+        "https://upload.wikimedia.org/page",
+        allowed_types={"text/html"},
+        max_bytes=1000,
+        truncate=True,
+        transport=make_transport(handler),
+    )
+    assert result.body == b"a" * 600 + b"b" * 400
+
+
+def test_status_is_reported() -> None:
+    with pytest.raises(FetchBlocked) as exc:
+        fetch(
+            "https://upload.wikimedia.org/a.png",
+            transport=make_transport(lambda r: httpx.Response(429)),
+        )
+    assert exc.value.status == 429

@@ -208,7 +208,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "graph": graph,
                 "funding_rows": funding_view.records(conn, graph.lineage(outlet["entity_id"])),
                 "articles": [
-                    (r, queries.parse_ts(r["published_at"]).astimezone(tz))
+                    (
+                        r,
+                        queries.parse_ts(r["shown_at"]).astimezone(tz),
+                        "published" if r["outlet_published_at"] else "seen",
+                    )
                     for r in queries.recent_articles(conn, outlet["id"])
                 ],
             }

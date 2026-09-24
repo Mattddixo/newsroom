@@ -1,11 +1,11 @@
-{% from "_macros.html" import ownership_text, article_link %}
+{% from "_macros.html" import ownership_text, article_link, article_when %}
 <li class="article">
   {{ article_link(a.url, a.title, a.language) }}
   <div class="meta">
     <a class="outlet" href="/outlet/{{ a.outlet_domain }}">
       {%- if a.logo_path %}<img class="logo" src="/logos/{{ a.logo_path }}" alt="" width="16" height="16" loading="lazy">{% endif -%}
       {{ a.outlet_name }}</a>
-    <span class="seen" title="When GDELT first saw this article. The outlet's own publication time may be earlier.">Seen <time datetime="{{ a.published.isoformat() }}">{{ a.published | article_date }}</time></span>
+    {{ article_when(a.published, a.date_kind) }}
     {% if a.tags %}
     <ul class="tags" aria-label="Tags">
       {% for slug, label in a.tags %}

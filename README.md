@@ -165,7 +165,14 @@ tracking parameters, fragments and trailing slashes.
 - **Rate limits:** GDELT allows about one request every 5 seconds and we send one every 6.
   When GDELT answers "429, too many requests", the worker waits 30 s, then 60 s, then 2 min,
   and slows its pace for the rest of that run.
-- **Dates:** the date shown is GDELT's "first seen" time, usually minutes after publication.
+- **Dates:** GDELT only reports when it first *saw* an article. After each run the worker reads
+  the publication time from each new article's page metadata (schema.org `datePublished`,
+  `article:published_time`, a few other standard tags) and cards show **Published …**. If the
+  page gives no usable date, cards show **Seen …** (GDELT's time). Limits: articles from the
+  last `PUBDATE_MAX_AGE_DAYS` (3) only, at most `PUBDATE_PER_RUN` (150) pages per run, one
+  request per second, robots.txt obeyed, sites that answer 403/429/5xx left alone for the run,
+  at most two tries per page, only the first 1.5 MB read and only the date kept. Turn it off
+  with `PUBDATE_FETCH=false`. Run it by hand with `docker compose exec worker newsroom pubdates`.
 
 ## Ownership
 
@@ -252,6 +259,7 @@ Run inside the worker: `docker compose exec worker newsroom <command>`.
 | Command            | What it does                                                   |
 |--------------------|----------------------------------------------------------------|
 | `status`           | Overview of ingestion, ownership, funding and backups          |
+| `pubdates [--limit N]` | Read publication dates from recent article pages now       |
 | `ingest`           | Fetch new articles now. Exits 1 unless the run was fully OK     |
 | `retag`            | Recompute all tags from `tags.yaml`                            |
 | `prune`            | Delete articles older than `RETENTION_DAYS`                    |

@@ -75,3 +75,14 @@
   <a class="sort{% if key == current %} active{% endif %}" href="?sort={{ key }}">{{ label }}{% if key == current %} <span aria-hidden="true">{{ '↓' if numeric else '↑' }}</span>{% endif %}</a>
 </th>
 {%- endmacro %}
+
+
+{# Article date with an honest label: "Published" when the article page states it,
+   otherwise "Seen" (when GDELT first saw the article). #}
+{% macro article_when(when, kind) -%}
+{% if kind == "published" -%}
+<span class="when" title="Publication time from the article page's own metadata.">Published <time datetime="{{ when.isoformat() }}">{{ when | article_date }}</time></span>
+{%- else -%}
+<span class="when" title="When GDELT first saw this article. The article page did not give a publication time (yet).">Seen <time datetime="{{ when.isoformat() }}">{{ when | article_date }}</time></span>
+{%- endif %}
+{%- endmacro %}

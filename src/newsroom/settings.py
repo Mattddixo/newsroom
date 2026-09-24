@@ -47,6 +47,9 @@ class Settings:
     gdelt_group_size: int = 8
     gdelt_min_interval: float = 6.0
     ownership_refresh_days: int = 7
+    pubdate_fetch: bool = True  # read publication dates from article pages
+    pubdate_per_run: int = 150
+    pubdate_max_age_days: int = 3
     wikidata_min_interval: float = 1.0
 
     @property
@@ -93,6 +96,9 @@ def load_settings() -> Settings:
         gdelt_group_size=int(env.get("GDELT_GROUP_SIZE", "8")),
         gdelt_min_interval=float(env.get("GDELT_MIN_INTERVAL", "6")),
         ownership_refresh_days=int(env.get("OWNERSHIP_REFRESH_DAYS", "7")),
+        pubdate_fetch=_bool(env.get("PUBDATE_FETCH"), True),
+        pubdate_per_run=int(env.get("PUBDATE_PER_RUN", "150")),
+        pubdate_max_age_days=int(env.get("PUBDATE_MAX_AGE_DAYS", "3")),
         wikidata_min_interval=float(env.get("WIKIDATA_MIN_INTERVAL", "1")),
     )
 
