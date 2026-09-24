@@ -27,7 +27,7 @@
   <ol class="articles compact">
     {% for r, when in articles %}
     <li class="article">{{ article_link(r.url, r.title, r.language) }}
-      <div class="meta"><time datetime="{{ when.isoformat() }}">{{ when | article_date }}</time></div></li>
+      <div class="meta"><span class="seen" title="When GDELT first saw this article. The outlet's own publication time may be earlier.">Seen <time datetime="{{ when.isoformat() }}">{{ when | article_date }}</time></span></div></li>
     {% endfor %}
   </ol>
   <p><a href="/?outlet={{ outlet.domain }}">All articles from {{ outlet.display_name }}</a></p>
