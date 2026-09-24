@@ -158,8 +158,13 @@ language and the GDELT image URL. The image URL is stored but never shown or fet
 There's no article text. Duplicates are removed by canonical URL, which ignores `www.`,
 tracking parameters, fragments and trailing slashes.
 
-- **Failures:** each GDELT request is committed separately. If a request fails after
-  retries, the run is marked `partial`, and the next run re-covers the same time window.
+- **Failures:** each GDELT request is committed separately, and each group of outlets keeps
+  its own progress marker. If a group's request fails after retries, only those outlets
+  re-cover their missed window next run; the others carry on. A restart mid-run keeps every
+  group that already finished. `make status` lists any outlets that are behind.
+- **Rate limits:** GDELT allows about one request every 5 seconds and we send one every 6.
+  When GDELT answers "429, too many requests", the worker waits 30 s, then 60 s, then 2 min,
+  and slows its pace for the rest of that run.
 - **Dates:** the date shown is GDELT's "first seen" time, usually minutes after publication.
 
 ## Ownership

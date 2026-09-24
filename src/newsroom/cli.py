@@ -9,7 +9,7 @@ from __future__ import annotations
 import argparse
 import sys
 import urllib.request
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from newsroom import __version__, funding_view, jobs
 from newsroom.backup import backup
@@ -298,6 +298,22 @@ def cmd_status(_: argparse.Namespace) -> int:
         )
         ok = one("SELECT max(finished_at) FROM ingest_runs WHERE status = 'ok'")[0]
         arts = one("SELECT count(*), max(published_at) FROM articles")
+        # "Up to date" = fetched through a recent run (two intervals, to allow for a run
+        # in progress). Outlets never fetched without error have no cursor at all.
+        fresh_after = (now - timedelta(minutes=2 * settings.ingest_interval_minutes)).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        )
+        behind = [
+            r[0]
+            for r in conn.execute(
+                "SELECT o.domain FROM outlets o LEFT JOIN ingest_cursors c"
+                " ON c.domain = o.domain AND c.source = 'gdelt'"
+                " WHERE o.active = 1 AND (c.window_end IS NULL OR c.window_end < ?)"
+                " ORDER BY o.domain",
+                (fresh_after,),
+            )
+        ]
+        active = one("SELECT count(*) FROM outlets WHERE active = 1")[0]
         matches = dict(
             conn.execute(
                 "SELECT match_status, count(*) FROM outlets WHERE active = 1 GROUP BY 1"
@@ -326,6 +342,10 @@ def cmd_status(_: argparse.Namespace) -> int:
             )
     print(f"  last full run:   {ok or 'never'}")
     print(f"  articles:        {arts[0]} (newest {arts[1] or '-'})")
+    print(f"  outlets current: {active - len(behind)} of {active}")
+    if behind:
+        shown = ", ".join(behind[:6]) + (f" and {len(behind) - 6} more" if len(behind) > 6 else "")
+        print(f"  behind:          {shown}")
     print("Ownership")
     print("  outlet matches:  " + ", ".join(f"{k} {v}" for k, v in sorted(matches.items())))
     print(f"  oldest check:    {checked or 'never'}")

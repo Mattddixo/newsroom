@@ -20,7 +20,7 @@ from pathlib import Path
 
 from newsroom.config import OutletConfig
 from newsroom.services.tagging import Tagger, tag_article, tag_ids
-from newsroom.sources.base import ArticleSource
+from newsroom.sources.base import ArticleSource, QueryResult
 from newsroom.urls import canonical_key
 
 log = logging.getLogger(__name__)
@@ -112,20 +112,50 @@ def sync_outlets(conn: sqlite3.Connection, outlets: Sequence[OutletConfig], now:
         raise
 
 
-def next_window_start(
+def _fallback_start(
+    conn: sqlite3.Connection, source: str, now: datetime, backfill: timedelta, overlap: timedelta
+) -> datetime:
+    """Start for an outlet with no cursor yet: the last fully OK run (from before
+    per-outlet cursors existed), else the backfill period."""
+    row = conn.execute(
+        "SELECT max(window_end) FROM ingest_runs WHERE source = ? AND status = 'ok'", (source,)
+    ).fetchone()
+    return parse_ts(row[0]) - overlap if row[0] else now - backfill
+
+
+def group_start(
     conn: sqlite3.Connection,
     source: str,
+    domains: Sequence[str],
     now: datetime,
     *,
     backfill: timedelta,
     overlap: timedelta,
     max_window: timedelta,
 ) -> datetime:
-    row = conn.execute(
-        "SELECT max(window_end) FROM ingest_runs WHERE source = ? AND status = 'ok'", (source,)
-    ).fetchone()
-    start = parse_ts(row[0]) - overlap if row[0] else now - backfill
-    return max(start, now - max_window)
+    """Where a group's window begins: its least-advanced outlet's cursor, minus overlap
+    (GDELT indexes with a delay), never further back than `max_window`."""
+    marks = ",".join("?" * len(domains))
+    cursors = dict(
+        conn.execute(
+            f"SELECT domain, window_end FROM ingest_cursors"  # noqa: S608
+            f" WHERE source = ? AND domain IN ({marks})",
+            [source, *domains],
+        ).fetchall()
+    )
+    fallback = _fallback_start(conn, source, now, backfill, overlap)
+    starts = [parse_ts(cursors[d]) - overlap if d in cursors else fallback for d in domains]
+    return max(min(starts), now - max_window)
+
+
+def _advance(conn: sqlite3.Connection, source: str, domains: Sequence[str], end: datetime) -> None:
+    stamp = ts(datetime.now(UTC))
+    conn.executemany(
+        "INSERT INTO ingest_cursors (source, domain, window_end, updated_at) VALUES (?, ?, ?, ?)"
+        " ON CONFLICT (source, domain) DO UPDATE SET window_end = excluded.window_end,"
+        " updated_at = excluded.updated_at",
+        [(source, d, ts(end), stamp) for d in domains],
+    )
 
 
 def run_ingest(
@@ -149,9 +179,14 @@ def run_ingest(
         row["domain"]: row["id"]
         for row in conn.execute("SELECT id, domain FROM outlets WHERE active = 1")
     }
-    start = next_window_start(
-        conn, source.name, now, backfill=backfill, overlap=overlap, max_window=max_window
-    )
+    groups = source.groups(list(outlets))
+    starts = [
+        group_start(
+            conn, source.name, g, now, backfill=backfill, overlap=overlap, max_window=max_window
+        )
+        for g in groups
+    ]
+    start = min(starts, default=now)
     cur = conn.execute(
         "INSERT INTO ingest_runs (source, started_at, window_start, window_end, status)"
         " VALUES (?, ?, ?, ?, 'running')",
@@ -170,46 +205,19 @@ def run_ingest(
     )
     error: str | None = None
     try:
-        for result in source.fetch(list(outlets), start, now):
-            summary.queries += 1
-            if result.error:
-                summary.query_errors += 1
-                _progress(conn, summary)
-                continue
-            retrieved = ts(datetime.now(UTC))
-            conn.execute("BEGIN IMMEDIATE")
-            try:
-                for rec in result.records:
-                    summary.fetched += 1
-                    outlet_id = outlets.get(rec.domain)
-                    if outlet_id is None:
-                        continue
-                    cur = conn.execute(
-                        "INSERT INTO articles (url, url_key, title, outlet_id, published_at,"
-                        " language, image_url, source, source_url, retrieved_at)"
-                        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-                        " ON CONFLICT (url_key) DO NOTHING",
-                        (
-                            rec.url,
-                            canonical_key(rec.url),
-                            rec.title,
-                            outlet_id,
-                            ts(rec.published_at),
-                            rec.language,
-                            rec.image_url,
-                            source.name,
-                            result.source_url,
-                            retrieved,
-                        ),
-                    )
-                    if cur.rowcount == 1:
-                        summary.inserted += 1
-                        tag_article(conn, tagger, cur.lastrowid or 0, rec.title, ids)
-                _progress(conn, summary)  # same transaction: counts match what is saved
-                conn.execute("COMMIT")
-            except Exception:
-                conn.execute("ROLLBACK")
-                raise
+        for group, group_from in zip(groups, starts, strict=True):
+            group_ok = True
+            for result in source.fetch(group, group_from, now):
+                summary.queries += 1
+                if result.error:
+                    summary.query_errors += 1
+                    group_ok = False
+                    _progress(conn, summary)
+                    continue
+                _store(conn, source.name, result, outlets, tagger, ids, summary)
+            if group_ok:
+                # Everything up to `now` is in for these outlets; the next run starts here.
+                _advance(conn, source.name, group, now)
     except Exception as exc:  # unexpected: record it, keep committed batches
         error = f"{type(exc).__name__}: {exc}"
         log.exception("ingest aborted")
@@ -239,6 +247,52 @@ def run_ingest(
         extra={k: v for k, v in vars(summary).items() if k not in {"window_start", "window_end"}},
     )
     return summary
+
+
+def _store(
+    conn: sqlite3.Connection,
+    source_name: str,
+    result: QueryResult,
+    outlets: dict[str, int],
+    tagger: Tagger,
+    ids: dict[str, int],
+    summary: RunSummary,
+) -> None:
+    """Save one request's articles (deduplicated, tagged) in one transaction."""
+    retrieved = ts(datetime.now(UTC))
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        for rec in result.records:
+            summary.fetched += 1
+            outlet_id = outlets.get(rec.domain)
+            if outlet_id is None:
+                continue
+            cur = conn.execute(
+                "INSERT INTO articles (url, url_key, title, outlet_id, published_at,"
+                " language, image_url, source, source_url, retrieved_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                " ON CONFLICT (url_key) DO NOTHING",
+                (
+                    rec.url,
+                    canonical_key(rec.url),
+                    rec.title,
+                    outlet_id,
+                    ts(rec.published_at),
+                    rec.language,
+                    rec.image_url,
+                    source_name,
+                    result.source_url,
+                    retrieved,
+                ),
+            )
+            if cur.rowcount == 1:
+                summary.inserted += 1
+                tag_article(conn, tagger, cur.lastrowid or 0, rec.title, ids)
+        _progress(conn, summary)  # same transaction: counts match what is saved
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
 
 
 def _progress(conn: sqlite3.Connection, s: RunSummary) -> None:

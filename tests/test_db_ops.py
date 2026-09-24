@@ -163,3 +163,29 @@ def test_odd_interval_falls_back_to_timer() -> None:
     from newsroom.worker import ingest_trigger
 
     assert isinstance(ingest_trigger(Settings(ingest_interval_minutes=7)), IntervalTrigger)
+
+
+def test_status_lists_outlets_behind(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from newsroom import cli
+    from newsroom.settings import Settings
+
+    settings = Settings(data_dir=tmp_path)
+    monkeypatch.setattr(cli, "get_settings", lambda: settings)
+    conn = connect(settings.db_path)
+    migrate(conn)
+    now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    for d in ("a.ca", "b.ca", "c.ca"):
+        conn.execute(
+            "INSERT INTO outlets (domain, display_name, country, language, created_at,"
+            " updated_at) VALUES (?, ?, 'CA', 'en', ?, ?)",
+            (d, d, now, now),
+        )
+    conn.execute("INSERT INTO ingest_cursors VALUES ('gdelt', 'a.ca', ?, ?)", (now, now))
+    conn.close()
+    with pytest.raises(SystemExit):
+        cli.main(["status"])
+    out = capsys.readouterr().out
+    assert "outlets current: 1 of 3" in out
+    assert "behind:          b.ca, c.ca" in out

@@ -267,3 +267,54 @@ def test_progress_is_recorded_while_running(conn: sqlite3.Connection) -> None:
 
     run_ingest(conn, Watching(), Tagger(TAGS), now=NOW)
     assert seen == [(1, 0, 1), (2, 1, 1)]
+
+
+class PerGroupSource(FakeSource):
+    """One group per outlet; outlets listed in `failing` get an error result."""
+
+    def __init__(self, failing: set[str] = frozenset()) -> None:  # type: ignore[assignment]
+        super().__init__(group_size=1)
+        self.failing = failing
+        self.starts: dict[str, datetime] = {}
+
+    def fetch(self, domains, start, end):  # type: ignore[no-untyped-def]
+        [domain] = domains
+        self.starts[domain] = start
+        if domain in self.failing:
+            yield QueryResult("x", error="HTTP 429")
+        else:
+            yield QueryResult("ok", [])
+
+
+def test_failed_group_does_not_hold_back_the_others(conn: sqlite3.Connection) -> None:
+    run_ingest(conn, PerGroupSource(), Tagger(TAGS), now=NOW, overlap=timedelta(0))
+    later = NOW + timedelta(minutes=15)
+    s = run_ingest(
+        conn,
+        PerGroupSource(failing={"nytimes.com"}),
+        Tagger(TAGS),
+        now=later,
+        overlap=timedelta(0),
+    )
+    assert s.status == "partial"
+
+    third = PerGroupSource()
+    run_ingest(conn, third, Tagger(TAGS), now=later + timedelta(minutes=15), overlap=timedelta(0))
+    # outlets that succeeded moved on; only the failed one re-covers its missed window
+    assert third.starts == {"cbc.ca": later, "radio-canada.ca": later, "nytimes.com": NOW}
+
+
+def test_first_run_uses_backfill_then_cursors(conn: sqlite3.Connection) -> None:
+    first = PerGroupSource(failing={"cbc.ca"})
+    run_ingest(conn, first, Tagger(TAGS), now=NOW, backfill=timedelta(hours=72))
+    assert set(first.starts.values()) == {NOW - timedelta(hours=72)}
+    cursors = dict(conn.execute("SELECT domain, window_end FROM ingest_cursors").fetchall())
+    assert cursors == {
+        "nytimes.com": "2026-09-24T12:00:00Z",
+        "radio-canada.ca": "2026-09-24T12:00:00Z",
+    }
+    second = PerGroupSource()
+    run_ingest(conn, second, Tagger(TAGS), now=NOW + timedelta(hours=1))
+    # still owed its backfill (measured from this run)
+    assert second.starts["cbc.ca"] == NOW + timedelta(hours=1) - timedelta(hours=72)
+    assert second.starts["nytimes.com"] == NOW - timedelta(hours=1)  # cursor minus overlap

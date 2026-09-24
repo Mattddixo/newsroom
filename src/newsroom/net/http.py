@@ -36,6 +36,8 @@ class ApiClient:
         max_retries: int = 3,
         backoff_base: float = 10.0,
         backoff_max: float = 300.0,
+        throttle_base: float = 30.0,
+        throttle_max_interval: float = 60.0,
         transport: httpx.BaseTransport | None = None,
         sleep: Callable[[float], None] = time.sleep,
         clock: Callable[[], float] = time.monotonic,
@@ -50,6 +52,8 @@ class ApiClient:
         self.max_retries = max_retries
         self.backoff_base = backoff_base
         self.backoff_max = backoff_max
+        self.throttle_base = throttle_base
+        self.throttle_max_interval = throttle_max_interval
         self._sleep = sleep
         self._clock = clock
         self._last: float | None = None
@@ -70,10 +74,22 @@ class ApiClient:
                 self._sleep(wait)
         self._last = self._clock()
 
-    def _backoff(self, attempt: int, retry_after: str | None) -> float:
+    def _backoff(self, attempt: int, retry_after: str | None, throttled: bool) -> float:
         if retry_after and retry_after.isdigit():
             return min(float(retry_after), self.backoff_max)
-        return min(self.backoff_base * (2**attempt), self.backoff_max)
+        base = self.throttle_base if throttled else self.backoff_base
+        return min(base * (2**attempt), self.backoff_max)
+
+    def _slow_down(self, host: str) -> None:
+        """Being throttled: double the gap between requests for the rest of this client's
+        life (i.e. this run), within [throttle_base / 3, throttle_max_interval]."""
+        wider = min(max(self.min_interval * 2, self.throttle_base / 3), self.throttle_max_interval)
+        if wider > self.min_interval:
+            log.warning(
+                "rate limited; slowing down",
+                extra={"host": host, "min_interval_s": wider},
+            )
+            self.min_interval = wider
 
     def get(
         self,
@@ -87,11 +103,13 @@ class ApiClient:
         for attempt in range(self.max_retries + 1):
             self._pace()
             retry_after = None
+            throttled = False
             try:
                 response = self._client.get(url, params=params)
                 if response.status_code in RETRY_STATUSES:
                     retry_after = response.headers.get("retry-after")
                     last_error = f"HTTP {response.status_code}"
+                    throttled = response.status_code == 429
                 elif response.status_code != 200:
                     raise ApiError(f"HTTP {response.status_code} from {response.url.host}")
                 else:
@@ -100,10 +118,13 @@ class ApiClient:
                     return response
             except RateLimited as exc:
                 last_error = f"rate limited: {exc}"
+                throttled = True
             except httpx.TransportError as exc:
                 last_error = type(exc).__name__
+            if throttled:
+                self._slow_down(httpx.URL(url).host)
             if attempt < self.max_retries:
-                delay = self._backoff(attempt, retry_after)
+                delay = self._backoff(attempt, retry_after, throttled)
                 log.warning(
                     "request failed, backing off",
                     extra={

@@ -130,9 +130,11 @@ def test_rate_limit_text_triggers_backoff_then_succeeds() -> None:
         body = fixture("ratelimit.txt") if calls["n"] == 1 else fixture("artlist.json")
         return httpx.Response(200, text=body)
 
-    results = list(GdeltSource(client_for(handler, sleeps)).fetch(["cbc.ca"], START, END))
+    client = client_for(handler, sleeps)
+    results = list(GdeltSource(client).fetch(["cbc.ca"], START, END))
     assert calls["n"] == 2
-    assert sleeps == [10.0]
+    assert sleeps[0] == 30.0  # throttled: a long wait, not the 10 s used for errors
+    assert client.min_interval == 10.0  # and it paces itself more slowly from now on
     assert results[0].error is None
     assert len(results[0].records) == 2
 
@@ -163,7 +165,7 @@ def test_retry_after_header_respected() -> None:
         return httpx.Response(200, text="{}")
 
     list(GdeltSource(client_for(handler, sleeps)).fetch(["cbc.ca"], START, END))
-    assert sleeps == [42.0]
+    assert sleeps[0] == 42.0  # Retry-After wins
 
 
 def test_client_paces_requests() -> None:
@@ -198,3 +200,12 @@ def test_backoff_log_names_the_host(caplog: pytest.LogCaptureFixture) -> None:
         list(GdeltSource(client_for(handler)).fetch(["cbc.ca"], START, END))
     [record] = [r for r in caplog.records if r.msg == "request failed, backing off"]
     assert record.host == "api.gdeltproject.org"  # type: ignore[attr-defined]
+
+
+def test_repeated_429_keeps_slowing_down() -> None:
+    sleeps: list[float] = []
+    client = client_for(lambda r: httpx.Response(429), sleeps)
+    results = list(GdeltSource(client).fetch(["cbc.ca"], START, END))
+    assert results[0].error and "429" in results[0].error
+    assert [s for s in sleeps if s in (30.0, 60.0, 120.0)] == [30.0, 60.0, 120.0]
+    assert client.min_interval == 60.0  # 10 -> 20 -> 40 -> capped at 60

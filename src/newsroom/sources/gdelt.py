@@ -142,12 +142,14 @@ class GdeltSource:
         self.client = client
         self.group_size = group_size
 
+    def groups(self, domains: Sequence[str]) -> list[list[str]]:
+        ordered = sorted(domains)
+        return [ordered[i : i + self.group_size] for i in range(0, len(ordered), self.group_size)]
+
     def fetch(
         self, domains: Sequence[str], start: datetime, end: datetime
     ) -> Iterator[QueryResult]:
-        ordered = sorted(domains)
-        for i in range(0, len(ordered), self.group_size):
-            group = ordered[i : i + self.group_size]
+        for group in self.groups(domains):
             yield from self._window(group, start, end)
 
     def _window(

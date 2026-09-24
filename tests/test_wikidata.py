@@ -120,7 +120,7 @@ def test_maxlag_is_retried() -> None:
     client = ApiClient("ua", transport=httpx.MockTransport(handler), sleep=sleeps.append)
     assert WikidataSource(client).get_labels(["Q1"]) == {"Q1": "Q1"}
     assert calls["n"] == 2
-    assert sleeps == [10.0]
+    assert sleeps[0] == 30.0
 
 
 def test_api_error_is_raised() -> None:

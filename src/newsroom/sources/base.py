@@ -31,6 +31,10 @@ class QueryResult:
 class ArticleSource(Protocol):
     name: str
 
+    def groups(self, domains: Sequence[str]) -> list[list[str]]:
+        """How domains are batched into requests. Ingestion tracks progress per group."""
+        ...
+
     def fetch(
         self, domains: Sequence[str], start: datetime, end: datetime
     ) -> Iterator[QueryResult]:

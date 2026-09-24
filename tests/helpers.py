@@ -44,10 +44,21 @@ def rec(url: str, title: str, when: datetime, domain: str = "cbc.ca") -> Article
 class FakeSource:
     name = "fake"
 
-    def __init__(self, results: list[QueryResult] | None = None, explode: bool = False) -> None:
+    def __init__(
+        self,
+        results: list[QueryResult] | None = None,
+        explode: bool = False,
+        group_size: int | None = None,
+    ) -> None:
         self.results = results or []
         self.explode = explode
+        self.group_size = group_size
         self.calls: list[tuple[datetime, datetime]] = []
+
+    def groups(self, domains: Sequence[str]) -> list[list[str]]:
+        ordered = sorted(domains)
+        size = self.group_size or len(ordered) or 1
+        return [ordered[i : i + size] for i in range(0, len(ordered), size)]
 
     def fetch(
         self, domains: Sequence[str], start: datetime, end: datetime
