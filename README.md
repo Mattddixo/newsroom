@@ -5,8 +5,9 @@ where a public record exists, **who funds it**. Every ownership or funding claim
 to its source record. Where no public record exists, the page says
 "Not publicly disclosed". No bias ratings, no sentiment scores, no editorializing.
 
-**Pages:** the feed (grouped by day; filter by tag, outlet, country, owner or date; headline
-search), **Outlets**, an outlet page (ownership chain, funding, recent articles), **Owners**
+**Pages:** the feed (filter by tag, outlet, country, owner or date; headline search; sort by
+newest, oldest, outlet or best match; 25/50/100 per page with numbered pages; filters and sort
+apply as soon as they change, and a notice appears when new articles arrive), **Outlets**, an outlet page (ownership chain, funding, recent articles), **Owners**
 (top-level owners by number of outlets, which makes concentration visible), an owner page
 (everything it holds, directly or through subsidiaries), and **About**, which explains the
 method. On each article card, clicking the "Owned by …" line opens the ownership chain and

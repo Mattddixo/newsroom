@@ -9,7 +9,7 @@
     {% if a.tags %}
     <ul class="tags" aria-label="Tags">
       {% for slug, label in a.tags %}
-      <li><a href="/?{{ filters.params(tag=slug) | qs }}">{{ label }}</a></li>
+      <li><a href="/?{{ filters.params(tag=slug, page=1) | qs }}">{{ label }}</a></li>
       {% endfor %}
     </ul>
     {% endif %}

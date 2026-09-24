@@ -69,6 +69,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     templates.env.globals["day_label"] = lambda d: _day_label(d, datetime.now(tz).date())
     templates.env.filters["pct"] = lambda v: f"{v * 100:.4g}%"
     templates.env.filters["money"] = _money
+    templates.env.globals["page_url"] = lambda f, n: _feed_url(f.params(page=n))
     templates.env.filters["source_name"] = _source_name
     client_ip = client_ip_resolver(settings.trusted_proxies)
     limiter = Limiter(key_func=client_ip, default_limits=[settings.rate_limit])
@@ -105,10 +106,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/", response_class=HTMLResponse)
     def index(request: Request) -> Response:
         filters = queries.FeedFilters.parse(dict(request.query_params))
-        canonical = filters.params(**({"before": filters.cursor} if filters.before else {}))
-        if dict(request.query_params) != canonical:
-            # Drop empty or invalid params (e.g. from the filter form) for clean, shareable URLs.
-            return RedirectResponse(f"/?{urlencode(canonical)}" if canonical else "/", 303)
+        # htmx requests (a filter or sort changed) are answered directly and told which
+        # clean URL to put in the address bar; plain requests are redirected to it.
+        is_htmx = request.headers.get("hx-request") == "true"
+        if dict(request.query_params) != filters.params() and not is_htmx:
+            return RedirectResponse(_feed_url(filters.params()), 303)
         if filters.q and not limiter.limiter.hit(search_limit, "search", client_ip(request)):
             return _error(request, 429, "Too many searches. Please wait a minute and try again.")
         context: dict[str, object] = {
@@ -138,7 +140,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 except sqlite3.OperationalError:
                     # Schema not migrated yet (worker still starting).
                     context["page"] = None
-        return templates.TemplateResponse(request, "index.html", context)
+        page = context["page"]
+        if isinstance(page, queries.FeedPage) and page.page != filters.page and not is_htmx:
+            # Past the last page (e.g. filters narrowed): go to the last real page.
+            return RedirectResponse(_feed_url(filters.params(page=page.page)), 303)
+        response = templates.TemplateResponse(request, "index.html", context)
+        if is_htmx:
+            current = page.page if isinstance(page, queries.FeedPage) else 1
+            response.headers["HX-Push-Url"] = _feed_url(filters.params(page=current))
+        return response
 
     @app.get("/robots.txt", include_in_schema=False)
     def robots() -> PlainTextResponse:
@@ -168,15 +178,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/outlets", response_class=HTMLResponse)
     def outlets_page(request: Request) -> Response:
         with database() as conn:
+            sort = _table_sort(request, OUTLET_SORTS, "name")
             if conn is None:
-                return templates.TemplateResponse(request, "outlets.html", {"rows": []})
+                return templates.TemplateResponse(
+                    request, "outlets.html", {"rows": [], "sort": sort}
+                )
             graph = Graph.load(conn)
             counts = queries.article_counts(conn, datetime.now(tz))
             rows = [
                 (o, graph.summary(o["entity_id"]), counts.get(o["id"], (0, 0)))
                 for o in queries.outlets(conn)
             ]
-        return templates.TemplateResponse(request, "outlets.html", {"rows": rows})
+        rows.sort(key=OUTLET_SORTS[sort])
+        return templates.TemplateResponse(request, "outlets.html", {"rows": rows, "sort": sort})
 
     @app.get("/outlet/{domain}", response_class=HTMLResponse)
     def outlet_page(request: Request, domain: str) -> Response:
@@ -224,7 +238,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 graph = Graph.load(conn)
                 counts = queries.article_counts(conn, datetime.now(tz))
                 rows = queries.owners(graph, queries.outlets(conn), counts)
-        return templates.TemplateResponse(request, "owners.html", {"rows": rows})
+        sort = _table_sort(request, OWNER_SORTS, "outlets")
+        rows.sort(key=OWNER_SORTS[sort])
+        return templates.TemplateResponse(request, "owners.html", {"rows": rows, "sort": sort})
 
     @app.get("/owner/{qid}", response_class=HTMLResponse)
     def owner_page(request: Request, qid: str) -> Response:
@@ -280,6 +296,28 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
 
     return app
+
+
+# Column sorts for the Outlets and Owners tables: text ascending, numbers descending.
+OUTLET_SORTS = {
+    "name": lambda r: r[0]["display_name"].casefold(),
+    "country": lambda r: (r[0]["country"], r[0]["display_name"].casefold()),
+    "articles": lambda r: (-(r[2][1] or 0), r[0]["display_name"].casefold()),
+}
+OWNER_SORTS = {
+    "outlets": lambda r: (-r.outlets, -r.recent, r.name.casefold()),
+    "name": lambda r: r.name.casefold(),
+    "articles": lambda r: (-r.recent, -r.outlets, r.name.casefold()),
+}
+
+
+def _table_sort(request: Request, allowed: dict, default: str) -> str:
+    value = request.query_params.get("sort", default)
+    return value if value in allowed else default
+
+
+def _feed_url(params: dict[str, str]) -> str:
+    return f"/?{urlencode(params)}" if params else "/"
 
 
 def _day_label(day: date, today: date) -> str:

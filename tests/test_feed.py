@@ -75,7 +75,7 @@ def test_date_grouping_uses_local_timezone(settings: Settings) -> None:
 
     conn = connect_readonly(settings.db_path)
     page = queries.feed(conn, queries.FeedFilters(), TZ)
-    by_day = {d.day.isoformat(): [a.title for a in d.articles] for d in page.days}
+    by_day = {g.day.isoformat(): [a.title for a in g.articles] for g in page.groups}
     assert "Late night council vote" in by_day["2026-09-23"]
     assert list(by_day) == sorted(by_day, reverse=True)
 
@@ -139,20 +139,114 @@ def test_invalid_params_are_ignored(client: TestClient) -> None:
     assert len(titles(resp.text)) == 5
 
 
-def test_pagination(settings: Settings, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(queries, "PAGE_SIZE", 2)
-    client = TestClient(create_app(settings))
+def add_articles(settings: Settings, n: int) -> None:
+    from newsroom.db import connect
+
+    conn = connect(settings.db_path)
+    records = [
+        rec(f"https://cbc.ca/bulk/{i}", f"Bulk story {i:03d}", NOW - timedelta(minutes=10 + i))
+        for i in range(n)
+    ]
+    run_ingest(conn, FakeSource([QueryResult("q", records)]), Tagger(TAGS), now=NOW)
+    conn.close()
+
+
+def test_pagination_pages_and_links(settings: Settings, client: TestClient) -> None:
+    add_articles(settings, 55)  # 60 in total
+    first = client.get("/", params={"per": 25}).text
+    assert "1\u201325 of 60 articles" in first
+    assert "Page 1 of 3" in first
+    assert 'href="/?per=25&amp;page=2" rel="next"' in first
+    assert 'rel="prev"' not in first  # no previous on page 1
+    assert 'aria-current="page" aria-label="Page 1, current"' in first
+
     seen: list[str] = []
-    url = "/"
-    for _ in range(5):
-        html = client.get(url).text
+    for n in (1, 2, 3):
+        html = client.get("/", params={"per": 25, "page": n}).text
         seen += titles(html)
-        m = re.search(r'href="(/\?[^"]*before=[^"]+)" rel="next"', html)
-        if not m:
-            break
-        url = m.group(1).replace("&amp;", "&")
-    assert len(seen) == 5
-    assert len(set(seen)) == 5
+    assert len(seen) == 60 and len(set(seen)) == 60
+
+    last = client.get("/", params={"per": 25, "page": 3}).text
+    assert "51\u201360 of 60 articles" in last
+    assert 'href="/?per=25&amp;page=2" rel="prev"' in last
+    assert 'rel="next"' not in last
+
+
+def test_page_past_the_end_redirects_to_last(settings: Settings, client: TestClient) -> None:
+    resp = client.get("/", params={"page": 9}, follow_redirects=False)
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/"  # 5 articles: only page 1
+
+
+def test_page_links_elide_the_middle() -> None:
+    page = queries.FeedPage([], total=1000, page=10, per=50)  # 20 pages
+    assert page.page_links == [1, None, 8, 9, 10, 11, 12, None, 20]
+    assert queries.FeedPage([], total=120, page=1, per=50).page_links == [1, 2, 3]
+
+
+@pytest.mark.parametrize(
+    ("sort", "first_title"),
+    [
+        ("newest", "Housing starts climb as interest rate falls"),
+        (
+            "oldest",
+            "<script>alert(&#39;x&#39;)</script> &amp; friends".replace("<", "&lt;").replace(
+                ">", "&gt;"
+            ),
+        ),
+    ],
+)
+def test_sort_by_date(client: TestClient, sort: str, first_title: str) -> None:
+    assert titles(client.get("/", params={"sort": sort}).text)[0] == first_title
+
+
+def test_sort_by_outlet_groups_under_outlet_headings(client: TestClient) -> None:
+    html = client.get("/", params={"sort": "outlet"}).text
+    headings = re.findall(r'<h2 id="group-\d+">([^<]+)</h2>', html)
+    assert headings == ["CBC News", "Radio-Canada", "The New York Times"]
+
+
+def test_best_match_only_with_a_search(settings: Settings, client: TestClient) -> None:
+    assert "Best match" not in client.get("/").text
+    # without a search, sort=relevance is dropped from the URL
+    resp = client.get("/", params={"sort": "relevance"}, follow_redirects=False)
+    assert resp.headers["location"] == "/"
+    add_articles(settings, 3)
+    html = client.get("/", params={"q": "housing", "sort": "relevance"}).text
+    assert '<option value="relevance" selected>Best match</option>' in html
+    assert titles(html) == ["Housing starts climb as interest rate falls"]
+    assert '<h2 id="group-' not in html  # ranked list, no day headings
+
+
+def test_htmx_request_gets_clean_push_url(client: TestClient) -> None:
+    resp = client.get(
+        "/",
+        params={"q": "", "tag": "housing", "outlet": "", "sort": "newest", "per": "50"},
+        headers={"HX-Request": "true"},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 200
+    assert resp.headers["HX-Push-Url"] == "/?tag=housing"
+
+
+def test_changing_a_filter_resets_the_page(settings: Settings, client: TestClient) -> None:
+    add_articles(settings, 55)
+    # newest first, 25 per page: the tagged "Housing starts…" (1 h old) lands on page 3
+    html = client.get("/", params={"per": 25, "page": 3}).text
+    links = set(re.findall(r'href="(/\?[^"]*tag=housing[^"]*)"', html))
+    assert links == {"/?tag=housing&amp;per=25"}  # keeps per-page, goes back to page 1
+    assert 'hx-include="closest form"' in html and 'name="page"' not in html
+
+
+def test_outlets_and_owners_tables_sort(client: TestClient) -> None:
+    by_name = client.get("/outlets").text
+    assert by_name.index("CBC News") < by_name.index("Radio-Canada")
+    assert 'aria-sort="ascending"' in by_name
+    by_articles = client.get("/outlets", params={"sort": "articles"}).text
+    assert 'aria-sort="descending"' in by_articles
+    assert by_articles.index("CBC News") < by_articles.index("The New York Times")
+    assert client.get("/outlets", params={"sort": "bogus"}).status_code == 200
+    assert client.get("/owners", params={"sort": "name"}).status_code == 200
 
 
 def test_tag_and_outlet_links_keep_filters(client: TestClient) -> None:

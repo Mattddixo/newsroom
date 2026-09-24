@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_macros.html" import sort_th %}
 {% block title %}Owners · newsroom{% endblock %}
 {% block content %}
 <h1>Owners</h1>
@@ -7,7 +8,7 @@
 <p class="empty">No ownership records yet.</p>
 {% else %}
 <table class="data">
-  <thead><tr><th scope="col">Owner</th><th scope="col" class="num">Outlets</th><th scope="col" class="num">Articles, 30 days</th></tr></thead>
+  <thead><tr>{{ sort_th("Owner", "name", sort) }}{{ sort_th("Outlets", "outlets", sort, true) }}{{ sort_th("Articles, 30 days", "articles", sort, true) }}</tr></thead>
   <tbody>
   {% for r in rows %}
   <tr>

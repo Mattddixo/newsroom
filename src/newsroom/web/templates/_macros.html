@@ -67,3 +67,11 @@
   <a class="open-new" href="{{ url }}" target="_blank" rel="noopener noreferrer" aria-label="Open in a new tab: {{ title }}" title="Opens in a new tab. To open in the background instead, middle-click or Ctrl/⌘-click the headline.">Open <span aria-hidden="true">↗</span></a>
 </div>
 {%- endmacro %}
+
+
+{# Sortable table header: a link that re-sorts by this column; aria-sort on the active one. #}
+{% macro sort_th(label, key, current, numeric=false) -%}
+<th scope="col"{% if numeric %} class="num"{% endif %}{% if key == current %} aria-sort="{{ 'descending' if numeric else 'ascending' }}"{% endif %}>
+  <a class="sort{% if key == current %} active{% endif %}" href="?sort={{ key }}">{{ label }}{% if key == current %} <span aria-hidden="true">{{ '↓' if numeric else '↑' }}</span>{% endif %}</a>
+</th>
+{%- endmacro %}

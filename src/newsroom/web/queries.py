@@ -13,12 +13,19 @@ from newsroom.ownership_view import Graph
 from newsroom.services.ingest import parse_ts, ts
 from newsroom.sources.wikidata import QID_RE
 
-PAGE_SIZE = 50
+PAGE_SIZES = (25, 50, 100)
+DEFAULT_PAGE_SIZE = 50
+MAX_PAGE = 100_000
+SORTS = {
+    "newest": "Newest first",
+    "oldest": "Oldest first",
+    "outlet": "Outlet name",
+    "relevance": "Best match",  # only with a search
+}
 MAX_QUERY_LENGTH = 200
 _TOKEN = re.compile(r"\w+", re.UNICODE)
 _DOMAIN = re.compile(r"^[a-z0-9-]+(\.[a-z0-9-]+)+$")
 _SLUG = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
-_CURSOR = re.compile(r"^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z)_(\d{1,12})$")
 
 
 @dataclass(frozen=True)
@@ -30,7 +37,9 @@ class FeedFilters:
     owner: str = ""
     date_from: date | None = None
     date_to: date | None = None
-    before: tuple[str, int] | None = None
+    sort: str = "newest"
+    page: int = 1
+    per: int = DEFAULT_PAGE_SIZE
 
     @classmethod
     def parse(cls, params: dict[str, str]) -> FeedFilters:
@@ -40,9 +49,11 @@ class FeedFilters:
         outlet = params.get("outlet", "").strip().lower()
         country = params.get("country", "").strip().upper()
         owner = params.get("owner", "").strip().upper()
-        before = None
-        if m := _CURSOR.match(params.get("before", "")):
-            before = (m.group(1), int(m.group(2)))
+        sort = params.get("sort", "newest")
+        if sort not in SORTS or (sort == "relevance" and not q):
+            sort = "newest"
+        page = _int(params.get("page", ""), 1)
+        per = _int(params.get("per", ""), DEFAULT_PAGE_SIZE)
         return cls(
             q=q,
             tag=tag if _SLUG.match(tag) else "",
@@ -51,11 +62,25 @@ class FeedFilters:
             owner=owner if QID_RE.match(owner) else "",
             date_from=_date(params.get("from", "")),
             date_to=_date(params.get("to", "")),
-            before=before,
+            sort=sort,
+            page=page if 1 <= page <= MAX_PAGE else 1,
+            per=per if per in PAGE_SIZES else DEFAULT_PAGE_SIZE,
         )
 
     def params(self, **overrides: object) -> dict[str, str]:
-        """Current filters as query params (for links), minus the cursor."""
+        """Current state as query params for links. Defaults are left out (clean URLs);
+        pass page=..., sort=... etc. to change one thing."""
+        values = {
+            key: "" for key in ("q", "tag", "outlet", "country", "owner", "from", "to")
+        }  # fixed order, so URLs read the same however they were built
+        values.update(self.filter_params())
+        values.update({"sort": self.sort, "per": str(self.per), "page": str(self.page)})
+        values.update({k: str(v) for k, v in overrides.items()})
+        defaults = {"sort": "newest", "per": str(DEFAULT_PAGE_SIZE), "page": "1"}
+        return {k: v for k, v in values.items() if v and defaults.get(k) != v}
+
+    def filter_params(self) -> dict[str, str]:
+        """Just the filters (what 'Clear filters' clears)."""
         values = {
             "q": self.q,
             "tag": self.tag,
@@ -65,16 +90,20 @@ class FeedFilters:
             "from": self.date_from.isoformat() if self.date_from else "",
             "to": self.date_to.isoformat() if self.date_to else "",
         }
-        values.update({k: str(v) for k, v in overrides.items()})
         return {k: v for k, v in values.items() if v}
 
     @property
-    def cursor(self) -> str:
-        return f"{self.before[0]}_{self.before[1]}" if self.before else ""
+    def active(self) -> bool:
+        return bool(self.filter_params())
 
     @property
-    def active(self) -> bool:
-        return bool(self.params())
+    def sort_options(self) -> dict[str, str]:
+        return {k: v for k, v in SORTS.items() if k != "relevance" or self.q}
+
+
+def _int(value: str, default: int) -> int:
+    value = value.strip()
+    return int(value) if value.isdigit() and len(value) <= 7 else default
 
 
 def _date(value: str) -> date | None:
@@ -110,23 +139,55 @@ class Article:
 
 
 @dataclass
-class Day:
-    day: date
+class Group:
+    """A run of articles under one heading: a day, an outlet, or none (best match)."""
+
+    kind: str  # day | outlet | none
     articles: list[Article]
+    day: date | None = None
+    label: str = ""
 
 
 @dataclass
 class FeedPage:
-    days: list[Day]
-    next_cursor: str | None
-    count: int
+    groups: list[Group]
+    total: int
+    page: int
+    per: int
+
+    @property
+    def pages(self) -> int:
+        return max(1, -(-self.total // self.per))
+
+    @property
+    def first(self) -> int:
+        return (self.page - 1) * self.per + 1 if self.total else 0
+
+    @property
+    def last(self) -> int:
+        return min(self.page * self.per, self.total)
+
+    @property
+    def page_links(self) -> list[int | None]:
+        """Page numbers to show: first, last and two either side of the current one;
+        None marks a gap."""
+        wanted = {1, self.pages, *range(self.page - 2, self.page + 3)}
+        numbers = sorted(n for n in wanted if 1 <= n <= self.pages)
+        out: list[int | None] = []
+        for n in numbers:
+            if out and n - (out[-1] or 0) > 1:
+                out.append(None)
+            out.append(n)
+        return out
 
 
-def _conditions(f: FeedFilters, tz: ZoneInfo) -> tuple[list[str], list[object]] | None:
+def _conditions(
+    f: FeedFilters, tz: ZoneInfo, with_query: bool = True
+) -> tuple[list[str], list[object]] | None:
     """SQL conditions for the filters (fixed strings, values bound). None = matches nothing."""
     where: list[str] = []
     args: list[object] = []
-    if f.q:
+    if f.q and with_query:
         match = fts_query(f.q)
         if not match:
             return None
@@ -158,9 +219,6 @@ def _conditions(f: FeedFilters, tz: ZoneInfo) -> tuple[list[str], list[object]] 
     if f.date_to:
         where.append("a.published_at < ?")
         args.append(ts(datetime.combine(f.date_to + timedelta(days=1), time.min, tz)))
-    if f.before:
-        where.append("(a.published_at, a.id) < (?, ?)")
-        args.extend(f.before)
     return where, args
 
 
@@ -182,22 +240,43 @@ def count_new(conn: sqlite3.Connection, f: FeedFilters, tz: ZoneInfo, since_id: 
     return conn.execute(sql, [since_id, *args]).fetchone()[0]
 
 
+ORDERS = {
+    "newest": "a.published_at DESC, a.id DESC",
+    "oldest": "a.published_at ASC, a.id ASC",
+    "outlet": "o.display_name COLLATE NOCASE ASC, a.published_at DESC, a.id DESC",
+    "relevance": "articles_fts.rank, a.published_at DESC, a.id DESC",
+}
+SELECT_COLUMNS = (
+    "a.id, a.url, a.title, a.published_at, o.display_name, o.domain,"
+    " o.entity_id, o.logo_path, a.language"
+)
+
+
 def feed(conn: sqlite3.Connection, f: FeedFilters, tz: ZoneInfo) -> FeedPage:
-    cond = _conditions(f, tz)
-    if cond is None:
-        return FeedPage([], None, 0)
+    relevance = f.sort == "relevance" and bool(f.q)
+    cond = _conditions(f, tz, with_query=not relevance)
+    match = fts_query(f.q) if relevance else ""
+    if cond is None or (relevance and not match):
+        return FeedPage([], 0, 1, f.per)
     where, args = cond
-    # `where` holds only the fixed clauses from _conditions; every value is a bound parameter.
+    if relevance:
+        # Ranked search: FTS5's bm25 `rank` needs the FTS table in the FROM clause.
+        source = (
+            " FROM articles_fts JOIN articles a ON a.id = articles_fts.rowid"
+            " JOIN outlets o ON o.id = a.outlet_id"
+        )
+        where = ["articles_fts MATCH ?", *where]
+        args = [match, *args]
+    else:
+        source = " FROM articles a JOIN outlets o ON o.id = a.outlet_id"
+    # `where`, `source` and ORDERS hold only fixed SQL; every value is a bound parameter.
     clause = " WHERE " + " AND ".join(where) if where else ""
-    sql = (
-        "SELECT a.id, a.url, a.title, a.published_at, o.display_name, o.domain,"  # noqa: S608
-        " o.entity_id, o.logo_path, a.language"
-        f" FROM articles a JOIN outlets o ON o.id = a.outlet_id{clause}"
-        " ORDER BY a.published_at DESC, a.id DESC LIMIT ?"
-    )
-    rows = conn.execute(sql, [*args, PAGE_SIZE + 1]).fetchall()
-    more = len(rows) > PAGE_SIZE
-    rows = rows[:PAGE_SIZE]
+    total = conn.execute(f"SELECT count(*){source}{clause}", args).fetchone()[0]
+    page = min(f.page, max(1, -(-total // f.per)))
+    rows = conn.execute(
+        f"SELECT {SELECT_COLUMNS}{source}{clause} ORDER BY {ORDERS[f.sort]} LIMIT ? OFFSET ?",
+        [*args, f.per, (page - 1) * f.per],
+    ).fetchall()
 
     articles = [
         Article(
@@ -214,12 +293,19 @@ def feed(conn: sqlite3.Connection, f: FeedFilters, tz: ZoneInfo) -> FeedPage:
         for r in rows
     ]
     _attach_tags(conn, articles)
-    days = [Day(d, list(items)) for d, items in groupby(articles, key=lambda a: a.published.date())]
-    cursor = None
-    if more and rows:
-        last = rows[-1]
-        cursor = f"{last['published_at']}_{last['id']}"
-    return FeedPage(days, cursor, len(articles))
+    if f.sort == "outlet":
+        groups = [
+            Group("outlet", list(items), label=name)
+            for name, items in groupby(articles, key=lambda a: a.outlet_name)
+        ]
+    elif f.sort == "relevance":
+        groups = [Group("none", articles)] if articles else []
+    else:
+        groups = [
+            Group("day", list(items), day=d)
+            for d, items in groupby(articles, key=lambda a: a.published.date())
+        ]
+    return FeedPage(groups, total, page, f.per)
 
 
 def _attach_tags(conn: sqlite3.Connection, articles: list[Article]) -> None:

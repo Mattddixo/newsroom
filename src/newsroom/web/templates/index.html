@@ -3,6 +3,9 @@
 {% block content %}
 <h1 class="visually-hidden">News feed</h1>
 
+{#- Selects and dates apply as soon as they change (htmx swaps just <main>); without
+    JavaScript the Search button submits everything. Changing a filter goes back to page 1. #}
+{% set live = 'hx-get="/" hx-include="closest form" hx-trigger="change" hx-target="#main" hx-select="#main" hx-swap="outerHTML" hx-push-url="true"' %}
 <form class="filters" method="get" action="/" role="search" aria-label="Filter articles">
   <div class="filters-row">
     <label class="visually-hidden" for="q">Search headlines</label>
@@ -13,7 +16,7 @@
   {% if options %}
   <div class="filters-row">
     <label>Tag
-      <select name="tag">
+      <select name="tag" {{ live | safe }}>
         <option value="">All</option>
         {% for t in options.tags %}
         <option value="{{ t.slug }}"{% if t.slug == filters.tag %} selected{% endif %}>{{ t.label }}</option>
@@ -21,7 +24,7 @@
       </select>
     </label>
     <label>Outlet
-      <select name="outlet">
+      <select name="outlet" {{ live | safe }}>
         <option value="">All</option>
         {% for o in options.outlets %}
         <option value="{{ o.domain }}"{% if o.domain == filters.outlet %} selected{% endif %}>{{ o.display_name }}</option>
@@ -29,7 +32,7 @@
       </select>
     </label>
     <label>Country
-      <select name="country">
+      <select name="country" {{ live | safe }}>
         <option value="">All</option>
         {% for c in options.countries %}
         <option value="{{ c.country }}"{% if c.country == filters.country %} selected{% endif %}>{{ c.country }}</option>
@@ -38,7 +41,7 @@
     </label>
     {% if owner_options %}
     <label>Owner
-      <select name="owner">
+      <select name="owner" {{ live | safe }}>
         <option value="">All</option>
         {% for qid, name in owner_options %}
         <option value="{{ qid }}"{% if qid == filters.owner %} selected{% endif %}>{{ name }}</option>
@@ -46,41 +49,83 @@
       </select>
     </label>
     {% endif %}
-    <label>From <input type="date" name="from" value="{{ filters.date_from or '' }}"></label>
-    <label>To <input type="date" name="to" value="{{ filters.date_to or '' }}"></label>
-    {% if filters.active %}<a class="clear" href="/">Clear filters</a>{% endif %}
+    <label>From <input type="date" name="from" value="{{ filters.date_from or '' }}" {{ live | safe }}></label>
+    <label>To <input type="date" name="to" value="{{ filters.date_to or '' }}" {{ live | safe }}></label>
   </div>
+  {% endif %}
+  {% if page and page.total %}
+  <div class="results-bar">
+    <p class="count" aria-live="polite">
+      {% if page.pages > 1 %}{{ "{:,}".format(page.first) }}–{{ "{:,}".format(page.last) }} of {% endif %}{{ "{:,}".format(page.total) }} article{{ "s" if page.total != 1 }}
+      {%- if filters.active %} · <a class="clear" href="/">Clear filters</a>{% endif %}
+    </p>
+    <label>Sort
+      <select name="sort" {{ live | safe }}>
+        {% for key, label in filters.sort_options.items() %}
+        <option value="{{ key }}"{% if key == filters.sort %} selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Per page
+      <select name="per" {{ live | safe }}>
+        {% for n in (25, 50, 100) %}
+        <option value="{{ n }}"{% if n == filters.per %} selected{% endif %}>{{ n }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    {% if page.pages > 1 %}
+    <nav class="pager-mini" aria-label="Pages (top)">
+      {% if page.page > 1 %}<a href="{{ page_url(filters, page.page - 1) }}" aria-label="Previous page">‹</a>{% else %}<span aria-hidden="true">‹</span>{% endif %}
+      <span>Page {{ page.page }} of {{ page.pages }}</span>
+      {% if page.page < page.pages %}<a href="{{ page_url(filters, page.page + 1) }}" aria-label="Next page">›</a>{% else %}<span aria-hidden="true">›</span>{% endif %}
+    </nav>
+    {% endif %}
+  </div>
+  {% elif filters.active %}
+  <p class="count"><a class="clear" href="/">Clear filters</a></p>
   {% endif %}
 </form>
 
 {% if page is none %}
   <p class="empty">No data yet. The worker creates the database and runs the first ingestion within a minute of starting.</p>
-{% elif not page.days %}
-  {% if filters.active or filters.before %}
+{% elif not page.groups %}
+  {% if filters.active %}
   <p class="empty">No articles match these filters. <a href="/">Clear filters</a></p>
   {% else %}
   <p class="empty">No articles yet. Ingestion runs every {{ interval }} minutes; the first run starts shortly after the worker starts.</p>
   {% endif %}
 {% else %}
-  {% if not filters.before and not filters.q %}
+  {% if page.page == 1 and filters.sort == "newest" and not filters.q %}
   {#- Checks every 2 minutes; never reloads the page by itself. #}
   <div class="new-articles" aria-live="polite"
-       hx-get="/fragments/new?{{ filters.params(since=latest_id) | qs }}"
+       hx-get="/fragments/new?{{ filters.filter_params() | qs }}{{ '&' if filters.filter_params() }}since={{ latest_id }}"
        hx-trigger="every 120s" hx-swap="innerHTML"></div>
   {% endif %}
-  {% for day in page.days %}
-  <section class="day" aria-labelledby="day-{{ loop.index }}">
-    <h2 id="day-{{ loop.index }}">{{ day_label(day.day) }}</h2>
+  {% for group in page.groups %}
+  <section class="group" {% if group.kind != "none" %}aria-labelledby="group-{{ loop.index }}"{% else %}aria-label="Search results"{% endif %}>
+    {% if group.kind == "day" %}
+    <h2 id="group-{{ loop.index }}">{{ day_label(group.day) }}</h2>
+    {% elif group.kind == "outlet" %}
+    <h2 id="group-{{ loop.index }}">{{ group.label }}</h2>
+    {% endif %}
     <ol class="articles">
-      {% for a in day.articles %}
+      {% for a in group.articles %}
       {% include "_article.html" %}
       {% endfor %}
     </ol>
   </section>
   {% endfor %}
-  {% if page.next_cursor %}
-  <nav class="pager" aria-label="Pagination">
-    <a href="/?{{ filters.params(before=page.next_cursor) | qs }}" rel="next">Older articles</a>
+  {% if page.pages > 1 %}
+  <nav class="pager" aria-label="Pages">
+    {% if page.page > 1 %}<a class="step" href="{{ page_url(filters, page.page - 1) }}" rel="prev">← Previous</a>{% else %}<span class="step off" aria-hidden="true">← Previous</span>{% endif %}
+    <ol>
+      {% for n in page.page_links %}
+      {% if n is none %}<li class="gap" aria-hidden="true">…</li>
+      {% elif n == page.page %}<li><a href="{{ page_url(filters, n) }}" aria-current="page" aria-label="Page {{ n }}, current">{{ n }}</a></li>
+      {% else %}<li><a href="{{ page_url(filters, n) }}" aria-label="Page {{ n }}">{{ n }}</a></li>{% endif %}
+      {% endfor %}
+    </ol>
+    {% if page.page < page.pages %}<a class="step" href="{{ page_url(filters, page.page + 1) }}" rel="next">Next →</a>{% else %}<span class="step off" aria-hidden="true">Next →</span>{% endif %}
   </nav>
   {% endif %}
 {% endif %}
