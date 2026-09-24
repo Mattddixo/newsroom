@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Checks from the host that port 8081 answers on Tailscale only.
-# Also test from another LAN device with Tailscale OFF: http://<lan-ip>:8081 must fail.
+# Checks from the host that port 8090 answers on Tailscale only.
+# Also test from another LAN device with Tailscale OFF: http://<lan-ip>:8090 must fail.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
-PORT=8081
+PORT=8090
 ts_ip="$(grep -E '^TAILSCALE_IP=' .env | cut -d= -f2-)"
 lan_ip="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for (i=1;i<NF;i++) if ($i=="src") print $(i+1)}')"
 fail=0

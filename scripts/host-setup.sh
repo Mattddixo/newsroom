@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Host settings from docs/security.md, applied idempotently (needs sudo):
-#   1. UFW: allow 8081 on tailscale0, deny 8081 elsewhere (skipped if ufw is absent/inactive)
+#   1. UFW: allow 8090 on tailscale0, deny 8090 elsewhere (skipped if ufw is absent/inactive)
 #   2. systemd drop-in so Docker starts after Tailscale has its address at boot
 # It does not restart Docker or touch /etc/ufw/after.rules (the optional
 # DOCKER-USER rule stays a manual step; see docs/security.md section 3).
 set -euo pipefail
 
-PORT=8081
+PORT=8090
 DROPIN_DIR=${DROPIN_DIR:-/etc/systemd/system/docker.service.d}
 DROPIN=$DROPIN_DIR/10-wait-for-tailscale.conf
 

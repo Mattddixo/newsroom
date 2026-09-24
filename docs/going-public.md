@@ -10,7 +10,7 @@ until you do it.
 ```
 visitor ──HTTPS──▶ Cloudflare edge ──(outbound tunnel)──▶ cloudflared container ──HTTP──▶ web:8000
                                                           (on phatboislim)
-you ──Tailscale──▶ ${TAILSCALE_IP}:8081 ──────────────────────────────────────────────▶ web:8000
+you ──Tailscale──▶ ${TAILSCALE_IP}:8090 ──────────────────────────────────────────────▶ web:8000
 ```
 
 `cloudflared` makes an outbound connection to Cloudflare; nothing listens on the LAN or WAN.
@@ -103,7 +103,7 @@ to `.env`; plain `docker compose` / `make` then includes the tunnel.
 curl -sI https://news.matt-lab.ca/ | grep -iE 'content-security|strict-transport|x-content'
 curl -s  https://news.matt-lab.ca/healthz        # ok
 make verify                                      # Tailscale still works, LAN still refused
-sudo ss -tlnp | grep -E ':(80|443|8081)\b'       # nothing new listening
+sudo ss -tlnp | grep -E ':(80|443|8090)\b'       # nothing new listening
 ```
 
 Then set `ENABLE_HSTS=true` and `docker compose up -d` again.

@@ -4,20 +4,20 @@
 
 ### 1. The Compose bind address is the control that matters
 
-`compose.yaml` publishes the web port as `${TAILSCALE_IP}:8081:8000`. Docker binds
-only to that address, so connections to the LAN IP or `127.0.0.1` on 8081 are refused.
+`compose.yaml` publishes the web port as `${TAILSCALE_IP}:8090:8000`. Docker binds
+only to that address, so connections to the LAN IP or `127.0.0.1` on 8090 are refused.
 Compose refuses to start if `TAILSCALE_IP` is empty, so it cannot fall back to `0.0.0.0`.
 
 **Why UFW alone is not enough:** Docker inserts its own iptables rules for published ports.
 That traffic goes through the `FORWARD`/`DOCKER` chains, not UFW's `INPUT` rules, so a
-plain `ufw deny 8081` does **not** block a published Docker port. That is why the bind
+plain `ufw deny 8090` does **not** block a published Docker port. That is why the bind
 address, not UFW, is the primary control.
 
 ### 2. UFW rules (host policy and documentation)
 
 ```bash
-sudo ufw allow in on tailscale0 to any port 8081 proto tcp comment 'newsroom via Tailscale'
-sudo ufw deny 8081/tcp comment 'newsroom: not on LAN/WAN'
+sudo ufw allow in on tailscale0 to any port 8090 proto tcp comment 'newsroom via Tailscale'
+sudo ufw deny 8090/tcp comment 'newsroom: not on LAN/WAN'
 sudo ufw status numbered
 ```
 
@@ -25,14 +25,14 @@ The allow rule must come before the deny rule in `ufw status numbered`.
 
 ### 3. Optional defense in depth: filter Docker-forwarded traffic too
 
-This drops new connections to host port 8081 unless they arrived on `tailscale0`, even if
+This drops new connections to host port 8090 unless they arrived on `tailscale0`, even if
 someone later changes the bind to `0.0.0.0`. Append to the **end** of `/etc/ufw/after.rules`:
 
 ```
 # BEGIN newsroom
 *filter
 :DOCKER-USER - [0:0]
--I DOCKER-USER -p tcp -m conntrack --ctorigdstport 8081 --ctstate NEW ! -i tailscale0 -j DROP
+-I DOCKER-USER -p tcp -m conntrack --ctorigdstport 8090 --ctstate NEW ! -i tailscale0 -j DROP
 COMMIT
 # END newsroom
 ```
@@ -65,8 +65,8 @@ Test it with `sudo reboot`, then `make verify`.
 
 ```bash
 make verify                                  # from the host
-curl -m 3 http://<LAN-IP>:8081/healthz       # from another LAN device, Tailscale OFF: must fail
-curl -m 3 http://<TAILSCALE-IP>:8081/healthz # from a tailnet device: prints "ok"
+curl -m 3 http://<LAN-IP>:8090/healthz       # from another LAN device, Tailscale OFF: must fail
+curl -m 3 http://<TAILSCALE-IP>:8090/healthz # from a tailnet device: prints "ok"
 ```
 
 ## Container hardening (compose.yaml, Dockerfile)
@@ -133,7 +133,7 @@ Each requirement from the project brief, where it's implemented, and how it's ve
 | Requirement | Implementation | Verified |
 |---|---|---|
 | Read-only from the browser | `ReadOnlyMethodsMiddleware` (GET/HEAD only); DB opened `mode=ro` + `query_only`; no forms that write; no accounts | Tests (`test_write_methods_rejected`); in Docker, a write through the web process's DB connection fails with "readonly database" |
-| Port on Tailscale only | `${TAILSCALE_IP}:8081:8000`; Compose refuses an empty value | `docker inspect` shows a single HostIp binding; `make verify` on the host |
+| Port on Tailscale only | `${TAILSCALE_IP}:8090:8000`; Compose refuses an empty value | `docker inspect` shows a single HostIp binding; `make verify` on the host |
 | UFW rules | This document, sections 2–3 (including the DOCKER-USER caveat) | On the host |
 | Non-root | UID/GID 10001 in the image and in `compose.yaml` | In Docker: `id` shows `uid=10001` |
 | Read-only rootfs | `read_only: true`; tmpfs `/tmp` (noexec); bind mounts only under `/storage/newsroom` | In Docker: writing to `/app` fails, `/tmp` works, `logos` is read-only for `web` |
