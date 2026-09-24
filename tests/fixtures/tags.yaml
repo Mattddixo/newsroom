@@ -1,0 +1,10 @@
+tags:
+  housing:
+    label: Housing
+    keywords: [housing, logement]
+  economy:
+    label: Economy
+    keywords: [interest rate, inflation]
+  elections:
+    label: Elections
+    keywords: [élection, election]

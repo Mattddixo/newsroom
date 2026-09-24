@@ -2,7 +2,7 @@
 COMPOSE := docker compose
 
 .DEFAULT_GOAL := help
-.PHONY: help init up down restart logs ps shell backup-db migrate test audit verify lint
+.PHONY: help init up down restart logs ps shell ingest-now retag config-check outlets backup-db migrate test audit verify lint
 
 help: ## List targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  %-12s %s\n", $$1, $$2}'
@@ -27,6 +27,18 @@ ps: ## Status and health
 
 shell: ## Shell in the worker container
 	$(COMPOSE) exec worker sh
+
+ingest-now: ## Fetch new articles now
+	$(COMPOSE) exec worker newsroom ingest
+
+retag: ## Recompute tags after editing config/tags.yaml
+	$(COMPOSE) exec worker newsroom retag
+
+config-check: ## Validate config/outlets.yaml and config/tags.yaml
+	$(COMPOSE) exec worker newsroom config check
+
+outlets: ## List outlets with article counts
+	$(COMPOSE) exec worker newsroom outlets list
 
 backup-db: ## Write a SQLite snapshot now
 	$(COMPOSE) exec worker newsroom backup

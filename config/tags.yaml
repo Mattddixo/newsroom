@@ -1,0 +1,73 @@
+# Keyword tags, matched against article titles (whole words, case- and
+# accent-insensitive). A title can get several tags. Multi-word phrases work.
+# After editing: docker compose exec worker newsroom retag
+#
+# DRAFT: English + French keywords for common topics. Edit to taste.
+
+tags:
+  elections:
+    label: Elections
+    keywords: [election, elections, electoral, ballot, ballots, voters, polling station,
+               by-election, byelection, primaries, caucus,
+               élection, élections, électoral, électeurs, scrutin, partielle]
+  economy:
+    label: Economy
+    keywords: [economy, economic, inflation, recession, gdp, interest rate, interest rates,
+               bank of canada, federal reserve, unemployment, jobs report,
+               économie, économique, récession, taux directeur, chômage]
+  trade:
+    label: Trade & tariffs
+    keywords: [tariff, tariffs, trade war, trade deal, cusma, usmca, nafta, exports, imports,
+               tarif, tarifs, droits de douane, libre-échange]
+  housing:
+    label: Housing
+    keywords: [housing, rent, rents, renters, mortgage, mortgages, homelessness, home prices,
+               logement, logements, loyer, loyers, hypothèque, itinérance]
+  climate:
+    label: Climate & environment
+    keywords: [climate, emissions, carbon tax, carbon pricing, greenhouse, net zero, net-zero,
+               pollution, environment, environmental,
+               climat, climatique, émissions, carbone, environnement]
+  wildfires:
+    label: Wildfires
+    keywords: [wildfire, wildfires, forest fire, forest fires, evacuation order,
+               feu de forêt, feux de forêt, incendie de forêt, incendies de forêt]
+  energy:
+    label: Energy
+    keywords: [oil, pipeline, pipelines, natural gas, lng, oilsands, oil sands, electricity,
+               nuclear power, renewable, renewables, solar, wind power,
+               pétrole, pipeline, gaz naturel, électricité, hydro-québec, énergie]
+  health:
+    label: Health
+    keywords: [health, hospital, hospitals, doctors, nurses, pharmacare, vaccine, vaccines,
+               measles, pandemic, outbreak, medicare, medicaid,
+               santé, hôpital, hôpitaux, médecins, infirmières, vaccin, rougeole]
+  immigration:
+    label: Immigration
+    keywords: [immigration, immigrants, migrants, asylum, refugee, refugees, deportation,
+               deportations, border, visa, visas,
+               immigrants, demandeurs d'asile, réfugiés, frontière, expulsion]
+  justice:
+    label: Courts & justice
+    keywords: [supreme court, court, judge, trial, lawsuit, sentenced, verdict, charged,
+               cour suprême, tribunal, juge, procès, poursuite, condamné, accusé]
+  indigenous:
+    label: Indigenous affairs
+    keywords: [indigenous, first nation, first nations, métis, inuit, reconciliation,
+               residential school, residential schools, tribal, tribe,
+               autochtone, autochtones, premières nations, réconciliation, pensionnats]
+  labour:
+    label: Labour
+    keywords: [strike, strikes, union, unions, lockout, collective agreement, minimum wage,
+               workers,
+               grève, grèves, syndicat, syndicats, convention collective, salaire minimum]
+  technology:
+    label: Technology
+    keywords: [artificial intelligence, ai, tech, technology, cybersecurity, cyberattack,
+               data breach, social media, big tech,
+               intelligence artificielle, ia, technologie, cybersécurité, cyberattaque]
+  media:
+    label: Media
+    keywords: [journalism, journalist, journalists, newsroom, newspaper, broadcaster,
+               online news act, press freedom, media ownership,
+               journalisme, journaliste, journalistes, médias, radiodiffuseur]

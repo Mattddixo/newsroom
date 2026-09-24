@@ -101,7 +101,7 @@ summary:focus-visible {
   list-style: none;
 }
 
-main {
+main.wrap {
   padding-top: 1rem;
   padding-bottom: 2rem;
 }
@@ -126,4 +126,161 @@ h1 {
     animation: none !important;
     transition: none !important;
   }
+}
+
+/* ---- utilities ---- */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.meta-note {
+  color: var(--muted);
+  font-size: 0.8rem;
+  margin-top: 2rem;
+}
+
+/* ---- filters ---- */
+.filters {
+  display: grid;
+  gap: 0.5rem;
+  margin-bottom: 1.25rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.filters-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+  align-items: end;
+}
+
+.filters-row + .filters-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr));
+}
+
+.filters select,
+.filters input[type="date"] {
+  width: 100%;
+  min-width: 0;
+}
+
+.filters label {
+  display: grid;
+  gap: 0.15rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+input,
+select,
+button {
+  font: inherit;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0.3rem 0.5rem;
+}
+
+input[type="search"] {
+  flex: 1 1 16rem;
+}
+
+button {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--bg);
+  cursor: pointer;
+}
+
+.clear {
+  font-size: 0.85rem;
+  align-self: center;
+}
+
+/* ---- feed ---- */
+.day h2 {
+  position: sticky;
+  top: 0;
+  background: var(--bg);
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  margin: 1.25rem 0 0;
+  padding: 0.35rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.articles {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.article {
+  padding: 0.55rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.article .title {
+  color: var(--fg);
+  font-weight: 550;
+  text-decoration: none;
+}
+
+.article .title:hover {
+  text-decoration: underline;
+}
+
+.article .title:visited {
+  color: var(--muted);
+}
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 0.6rem;
+  align-items: baseline;
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin-top: 0.15rem;
+}
+
+.meta .outlet {
+  color: var(--fg);
+  text-decoration: none;
+}
+
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tags a {
+  color: var(--muted);
+  background: var(--surface);
+  border-radius: 3px;
+  padding: 0 0.35rem;
+  text-decoration: none;
+}
+
+.tags a:hover {
+  color: var(--fg);
+}
+
+.pager {
+  margin: 1.5rem 0;
 }

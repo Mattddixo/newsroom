@@ -5,8 +5,8 @@ where a public record exists, **who funds it**. Every ownership or funding claim
 to its source record. Where no public record exists, the page says
 "Not publicly disclosed". No bias ratings, no sentiment scores, no editorializing.
 
-> Status: **Phase 1 (skeleton).** The web app, hardened containers, backups and the
-> SSRF-guarded fetcher are in place. Articles, ownership and funding arrive in later phases.
+> Status: **Phase 2 (articles).** Hourly GDELT ingestion, a feed grouped by day, tags,
+> filters and headline search are in place. Ownership (phase 3) and funding (phase 4) come next.
 
 ## How it runs
 
@@ -15,7 +15,7 @@ Two containers from one image:
 | Service  | Role                                                                  | Network                          |
 |----------|-----------------------------------------------------------------------|----------------------------------|
 | `web`    | FastAPI, server-rendered pages. Opens SQLite **read-only**.           | `${TAILSCALE_IP}:8081` only      |
-| `worker` | Scheduler: migrations, ingestion (phase 2+), nightly SQLite snapshot. | Outbound only, no published port |
+| `worker` | Scheduler: migrations, hourly ingestion, nightly snapshot and pruning. | Outbound only, no published port |
 
 All state lives under `/storage/newsroom/` (restic already backs that up):
 
@@ -57,6 +57,10 @@ for Tailscale at boot.
 | `make down`        | Stop                                                                 |
 | `make logs`        | Follow logs from both containers                                     |
 | `make ps`          | Container status and health                                          |
+| `make ingest-now`  | Fetch new articles now (also runs hourly on its own)                 |
+| `make retag`       | Recompute tags after editing `config/tags.yaml`                      |
+| `make config-check`| Validate `config/outlets.yaml` and `config/tags.yaml`                |
+| `make outlets`     | Outlets with article counts and latest article time                  |
 | `make backup-db`   | Write a SQLite snapshot now                                          |
 | `make test`        | Lint + tests inside a throwaway build stage (no Python needed on the host) |
 | `make audit`       | `pip-audit` of the locked dependencies                               |
@@ -76,8 +80,51 @@ for Tailscale at boot.
 | `SEARCH_RATE_LIMIT` | `30/minute`      | Per-IP limit on search (phase 2)                             |
 | `ALLOWED_HOSTS`   | `*`                | Comma-separated Host header allowlist (set when going public)|
 | `ENABLE_HSTS`     | `false`            | Only turn on once served over HTTPS                          |
+| `INGEST_INTERVAL_MINUTES` | `60`       | How often the worker ingests                                 |
+| `INGEST_BACKFILL_HOURS`   | `72`       | How far back the very first run reaches                      |
+| `RETENTION_DAYS`  | `365`              | Articles older than this are deleted nightly (0 = keep forever) |
+| `GDELT_GROUP_SIZE`| `8`                | Outlets per GDELT query                                      |
+| `GDELT_MIN_INTERVAL` | `6`             | Seconds between GDELT requests (GDELT asks for ≥ 5)          |
 | `BACKUP_HOUR`     | `3`                | Local hour for the nightly snapshot                          |
 | `BACKUP_KEEP`     | `14`               | Snapshots to keep                                            |
+
+## What gets ingested
+
+**Outlets** come from `config/outlets.yaml`, a draft list of about 75 Canadian and US outlets
+for you to edit. **Tags** come from `config/tags.yaml`: keyword lists, in English and French,
+matched against headlines as whole words, ignoring case and accents. Both files are mounted
+into the worker, so you can edit them with `micro` without rebuilding the image:
+
+```bash
+micro config/outlets.yaml
+make config-check              # validate
+make ingest-now                # new outlets are picked up on the next run anyway
+micro config/tags.yaml && make retag
+```
+
+Once an hour the worker asks GDELT for articles from these outlets, 8 outlets per request,
+at most one request every 6 seconds. It stores **only metadata**: title, URL, outlet, date,
+language and the GDELT image URL. The image URL is stored but never shown or fetched.
+There's no article text. Duplicates are removed by canonical URL, which ignores `www.`,
+tracking parameters, fragments and trailing slashes.
+
+- **Failures:** each GDELT request is committed separately. If a request fails after
+  retries, the run is marked `partial`, and the next run re-covers the same time window.
+- **Dates:** the date shown is GDELT's "first seen" time, usually minutes after publication.
+
+## CLI reference
+
+Run inside the worker: `docker compose exec worker newsroom <command>`.
+
+| Command            | What it does                                                   |
+|--------------------|----------------------------------------------------------------|
+| `ingest`           | Fetch new articles now. Exits 1 unless the run was fully OK     |
+| `retag`            | Recompute all tags from `tags.yaml`                            |
+| `prune`            | Delete articles older than `RETENTION_DAYS`                    |
+| `config check`     | Validate both YAML files                                       |
+| `outlets list`     | Outlets, article counts, latest article                        |
+| `backup`           | Write a consistent SQLite snapshot now                         |
+| `migrate`          | Apply pending schema migrations (the worker does this on start) |
 
 ## Development
 

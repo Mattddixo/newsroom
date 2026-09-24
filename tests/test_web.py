@@ -17,7 +17,7 @@ def test_healthz(client: TestClient) -> None:
 def test_index_renders(client: TestClient) -> None:
     resp = client.get("/")
     assert resp.status_code == 200
-    assert "<h1>Feed</h1>" in resp.text
+    assert "News feed" in resp.text
 
 
 def test_security_headers(client: TestClient) -> None:

@@ -1,5 +1,75 @@
 {% extends "base.html" %}
+{% block title %}{% if filters.q %}Search: {{ filters.q }} · {% endif %}newsroom{% endblock %}
 {% block content %}
-<h1>Feed</h1>
-<p class="empty">No articles yet. Ingestion is added in the next phase.</p>
+<h1 class="visually-hidden">News feed</h1>
+
+<form class="filters" method="get" action="/" role="search" aria-label="Filter articles">
+  <div class="filters-row">
+    <label class="visually-hidden" for="q">Search headlines</label>
+    <input id="q" name="q" type="search" value="{{ filters.q }}" maxlength="200"
+           placeholder="Search headlines" autocomplete="off">
+    <button type="submit">Search</button>
+  </div>
+  {% if options %}
+  <div class="filters-row">
+    <label>Tag
+      <select name="tag">
+        <option value="">All</option>
+        {% for t in options.tags %}
+        <option value="{{ t.slug }}"{% if t.slug == filters.tag %} selected{% endif %}>{{ t.label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Outlet
+      <select name="outlet">
+        <option value="">All</option>
+        {% for o in options.outlets %}
+        <option value="{{ o.domain }}"{% if o.domain == filters.outlet %} selected{% endif %}>{{ o.display_name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Country
+      <select name="country">
+        <option value="">All</option>
+        {% for c in options.countries %}
+        <option value="{{ c.country }}"{% if c.country == filters.country %} selected{% endif %}>{{ c.country }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>From <input type="date" name="from" value="{{ filters.date_from or '' }}"></label>
+    <label>To <input type="date" name="to" value="{{ filters.date_to or '' }}"></label>
+    {% if filters.active %}<a class="clear" href="/">Clear filters</a>{% endif %}
+  </div>
+  {% endif %}
+</form>
+
+{% if page is none %}
+  <p class="empty">No data yet. The worker creates the database and runs the first ingestion within a minute of starting.</p>
+{% elif not page.days %}
+  {% if filters.active or filters.before %}
+  <p class="empty">No articles match these filters. <a href="/">Clear filters</a></p>
+  {% else %}
+  <p class="empty">No articles yet. Ingestion runs every hour; the first run starts shortly after the worker starts.</p>
+  {% endif %}
+{% else %}
+  {% for day in page.days %}
+  <section class="day" aria-labelledby="day-{{ loop.index }}">
+    <h2 id="day-{{ loop.index }}">{{ day_label(day.day) }}</h2>
+    <ol class="articles">
+      {% for a in day.articles %}
+      {% include "_article.html" %}
+      {% endfor %}
+    </ol>
+  </section>
+  {% endfor %}
+  {% if page.next_cursor %}
+  <nav class="pager" aria-label="Pagination">
+    <a href="/?{{ filters.params(before=page.next_cursor) | qs }}" rel="next">Older articles</a>
+  </nav>
+  {% endif %}
+{% endif %}
+
+{% if last_ingest %}
+<p class="meta-note">Last updated {{ last_ingest.strftime('%Y-%m-%d %H:%M %Z') }}.</p>
+{% endif %}
 {% endblock %}

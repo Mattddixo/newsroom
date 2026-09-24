@@ -12,6 +12,8 @@ dependencies = [
     "slowapi",
     "apscheduler>=3.10,<4",
     "tzdata",
+    "pyyaml>=6.0.3",
+    "limits>=5.8.0",
 ]
 
 [project.scripts]

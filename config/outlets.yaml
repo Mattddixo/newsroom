@@ -1,0 +1,99 @@
+# Outlets to ingest. Edit freely; the worker re-reads this file on every run.
+#   domain:   the outlet's web domain (subdomains are included automatically)
+#   name:     display name
+#   country:  ISO 3166-1 alpha-2 (CA, US, ...)
+#   language: ISO 639-1 (en, fr, ...)
+# Removing an entry stops ingestion for it; its existing articles are kept.
+# Check your edits with: docker compose exec worker newsroom config check
+#
+# DRAFT: a starting list for Canada + US. Review and trim/extend to taste.
+
+outlets:
+  # --- Canada: national and broadcast (English) ---
+  - {domain: cbc.ca,                 name: CBC News,                  country: CA, language: en}
+  - {domain: ctvnews.ca,             name: CTV News,                  country: CA, language: en}
+  - {domain: globalnews.ca,          name: Global News,               country: CA, language: en}
+  - {domain: citynews.ca,            name: CityNews,                  country: CA, language: en}
+  - {domain: cp24.com,               name: CP24,                      country: CA, language: en}
+  - {domain: aptnnews.ca,            name: APTN News,                 country: CA, language: en}
+  - {domain: theglobeandmail.com,    name: The Globe and Mail,        country: CA, language: en}
+  - {domain: nationalpost.com,       name: National Post,             country: CA, language: en}
+  - {domain: thestar.com,            name: Toronto Star,              country: CA, language: en}
+  - {domain: torontosun.com,         name: Toronto Sun,               country: CA, language: en}
+  - {domain: macleans.ca,            name: Maclean's,                 country: CA, language: en}
+  - {domain: thewalrus.ca,           name: The Walrus,                country: CA, language: en}
+  - {domain: hilltimes.com,          name: The Hill Times,            country: CA, language: en}
+  - {domain: ipolitics.ca,           name: iPolitics,                 country: CA, language: en}
+  - {domain: nationalobserver.com,   name: Canada's National Observer, country: CA, language: en}
+  - {domain: thenarwhal.ca,          name: The Narwhal,               country: CA, language: en}
+  - {domain: thetyee.ca,             name: The Tyee,                  country: CA, language: en}
+  - {domain: thelogic.co,            name: The Logic,                 country: CA, language: en}
+
+  # --- Canada: regional dailies (English) ---
+  - {domain: montrealgazette.com,    name: Montreal Gazette,          country: CA, language: en}
+  - {domain: ottawacitizen.com,      name: Ottawa Citizen,            country: CA, language: en}
+  - {domain: vancouversun.com,       name: Vancouver Sun,             country: CA, language: en}
+  - {domain: theprovince.com,        name: The Province,              country: CA, language: en}
+  - {domain: calgaryherald.com,      name: Calgary Herald,            country: CA, language: en}
+  - {domain: edmontonjournal.com,    name: Edmonton Journal,          country: CA, language: en}
+  - {domain: winnipegfreepress.com,  name: Winnipeg Free Press,       country: CA, language: en}
+  - {domain: thechronicleherald.ca,  name: The Chronicle Herald,      country: CA, language: en}
+
+  # --- Canada: French-language ---
+  - {domain: radio-canada.ca,        name: Radio-Canada,              country: CA, language: fr}
+  - {domain: lapresse.ca,            name: La Presse,                 country: CA, language: fr}
+  - {domain: ledevoir.com,           name: Le Devoir,                 country: CA, language: fr}
+  - {domain: journaldemontreal.com,  name: Le Journal de Montréal,    country: CA, language: fr}
+  - {domain: journaldequebec.com,    name: Le Journal de Québec,      country: CA, language: fr}
+  - {domain: tvanouvelles.ca,        name: TVA Nouvelles,             country: CA, language: fr}
+  - {domain: lesoleil.com,           name: Le Soleil,                 country: CA, language: fr}
+
+  # --- US: wires, national and broadcast ---
+  - {domain: apnews.com,             name: Associated Press,          country: US, language: en}
+  - {domain: reuters.com,            name: Reuters,                   country: US, language: en}
+  - {domain: npr.org,                name: NPR,                       country: US, language: en}
+  - {domain: pbs.org,                name: PBS,                       country: US, language: en}
+  - {domain: voanews.com,            name: Voice of America,          country: US, language: en}
+  - {domain: cnn.com,                name: CNN,                       country: US, language: en}
+  - {domain: foxnews.com,            name: Fox News,                  country: US, language: en}
+  - {domain: nbcnews.com,            name: NBC News,                  country: US, language: en}
+  - {domain: cbsnews.com,            name: CBS News,                  country: US, language: en}
+  - {domain: abcnews.go.com,         name: ABC News,                  country: US, language: en}
+  - {domain: msnbc.com,              name: MSNBC,                     country: US, language: en}
+  - {domain: cnbc.com,               name: CNBC,                      country: US, language: en}
+  - {domain: bloomberg.com,          name: Bloomberg,                 country: US, language: en}
+
+  # --- US: newspapers and magazines ---
+  - {domain: nytimes.com,            name: The New York Times,        country: US, language: en}
+  - {domain: washingtonpost.com,     name: The Washington Post,       country: US, language: en}
+  - {domain: wsj.com,                name: The Wall Street Journal,   country: US, language: en}
+  - {domain: usatoday.com,           name: USA Today,                 country: US, language: en}
+  - {domain: latimes.com,            name: Los Angeles Times,         country: US, language: en}
+  - {domain: nypost.com,             name: New York Post,             country: US, language: en}
+  - {domain: washingtontimes.com,    name: The Washington Times,      country: US, language: en}
+  - {domain: bostonglobe.com,        name: The Boston Globe,          country: US, language: en}
+  - {domain: chicagotribune.com,     name: Chicago Tribune,           country: US, language: en}
+  - {domain: sfchronicle.com,        name: San Francisco Chronicle,   country: US, language: en}
+  - {domain: seattletimes.com,       name: The Seattle Times,         country: US, language: en}
+  - {domain: miamiherald.com,        name: Miami Herald,              country: US, language: en}
+  - {domain: csmonitor.com,          name: The Christian Science Monitor, country: US, language: en}
+  - {domain: theatlantic.com,        name: The Atlantic,              country: US, language: en}
+  - {domain: newyorker.com,          name: The New Yorker,            country: US, language: en}
+  - {domain: time.com,               name: TIME,                      country: US, language: en}
+  - {domain: newsweek.com,           name: Newsweek,                  country: US, language: en}
+
+  # --- US: digital-native ---
+  - {domain: politico.com,           name: Politico,                  country: US, language: en}
+  - {domain: axios.com,              name: Axios,                     country: US, language: en}
+  - {domain: thehill.com,            name: The Hill,                  country: US, language: en}
+  - {domain: vox.com,                name: Vox,                       country: US, language: en}
+  - {domain: huffpost.com,           name: HuffPost,                  country: US, language: en}
+  - {domain: businessinsider.com,    name: Business Insider,          country: US, language: en}
+  - {domain: breitbart.com,          name: Breitbart,                 country: US, language: en}
+  - {domain: dailywire.com,          name: The Daily Wire,            country: US, language: en}
+
+  # --- US: nonprofit newsrooms ---
+  - {domain: propublica.org,         name: ProPublica,                country: US, language: en}
+  - {domain: texastribune.org,       name: The Texas Tribune,         country: US, language: en}
+  - {domain: calmatters.org,         name: CalMatters,                country: US, language: en}
+  - {domain: themarshallproject.org, name: The Marshall Project,      country: US, language: en}

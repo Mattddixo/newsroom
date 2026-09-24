@@ -1,0 +1,84 @@
+{
+ "articles": [
+  {
+   "url": "https://www.cbc.ca/news/politics/budget-2026-1.7412345",
+   "url_mobile": "",
+   "title": "Federal budget promises new housing money &amp; tax changes",
+   "seendate": "20260923T141500Z",
+   "socialimage": "https://i.cbc.ca/1.7412345.jpg",
+   "domain": "cbc.ca",
+   "language": "English",
+   "sourcecountry": "Canada"
+  },
+  {
+   "url": "https://www.cbc.ca/news/politics/budget-2026-1.7412345?utm_source=twitter&utm_medium=social",
+   "url_mobile": "",
+   "title": "Federal budget promises new housing money &amp; tax changes",
+   "seendate": "20260923T142000Z",
+   "socialimage": "",
+   "domain": "cbc.ca",
+   "language": "English",
+   "sourcecountry": "Canada"
+  },
+  {
+   "url": "https://ici.radio-canada.ca/nouvelle/2100000/elections-partielle",
+   "url_mobile": "",
+   "title": "Élection partielle : les électeurs aux urnes",
+   "seendate": "20260923T120000Z",
+   "socialimage": "javascript:alert(1)",
+   "domain": "radio-canada.ca",
+   "language": "French",
+   "sourcecountry": "Canada"
+  },
+  {
+   "url": "https://www.ctvnews.ca/canada/wildfire-evacuation-order-lifted-1.7000001",
+   "url_mobile": "",
+   "title": "Wildfire  evacuation order lifted in northern town",
+   "seendate": "20260922T235900Z",
+   "socialimage": "https://www.ctvnews.ca/img.jpg",
+   "domain": "ctvnews.ca",
+   "language": "English",
+   "sourcecountry": "Canada"
+  },
+  {
+   "url": "https://fakecbc.ca/scam",
+   "url_mobile": "",
+   "title": "Lookalike domain that the substring query also matches",
+   "seendate": "20260923T100000Z",
+   "socialimage": "",
+   "domain": "fakecbc.ca",
+   "language": "English",
+   "sourcecountry": "Canada"
+  },
+  {
+   "url": "javascript:alert(1)",
+   "url_mobile": "",
+   "title": "Bad scheme",
+   "seendate": "20260923T100000Z",
+   "socialimage": "",
+   "domain": "cbc.ca",
+   "language": "English",
+   "sourcecountry": "Canada"
+  },
+  {
+   "url": "https://www.cbc.ca/news/no-date",
+   "url_mobile": "",
+   "title": "Missing seendate",
+   "seendate": "",
+   "socialimage": "",
+   "domain": "cbc.ca",
+   "language": "English",
+   "sourcecountry": "Canada"
+  },
+  {
+   "url": "https://www.cbc.ca/news/no-title",
+   "url_mobile": "",
+   "title": "   ",
+   "seendate": "20260923T100000Z",
+   "socialimage": "",
+   "domain": "cbc.ca",
+   "language": "English",
+   "sourcecountry": "Canada"
+  }
+ ]
+}

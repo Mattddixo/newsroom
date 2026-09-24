@@ -8,16 +8,19 @@ from __future__ import annotations
 
 import logging
 import time
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
+from newsroom import jobs
 from newsroom.backup import backup
 from newsroom.db import connect
 from newsroom.log import setup_logging
 from newsroom.migrate import migrate
+from newsroom.services.ingest import IngestBusy
 from newsroom.settings import Settings, get_settings
 
 log = logging.getLogger(__name__)
@@ -44,6 +47,22 @@ def run_backup(settings: Settings) -> None:
         log.exception("backup failed")
 
 
+def run_ingest(settings: Settings) -> None:
+    try:
+        jobs.ingest_articles(settings)
+    except IngestBusy:
+        log.info("ingest skipped: another run is in progress")
+    except Exception:
+        log.exception("ingest failed")
+
+
+def run_prune(settings: Settings) -> None:
+    try:
+        jobs.prune(settings)
+    except Exception:
+        log.exception("prune failed")
+
+
 def build_scheduler(settings: Settings) -> BlockingScheduler:
     scheduler = BlockingScheduler(
         timezone=settings.timezone,
@@ -55,6 +74,19 @@ def build_scheduler(settings: Settings) -> BlockingScheduler:
         CronTrigger(hour=settings.backup_hour, minute=0, timezone=settings.timezone),
         args=[settings],
         id="backup",
+    )
+    scheduler.add_job(
+        run_ingest,
+        IntervalTrigger(minutes=settings.ingest_interval_minutes),
+        args=[settings],
+        id="ingest",
+        next_run_time=datetime.now().astimezone() + timedelta(seconds=30),
+    )
+    scheduler.add_job(
+        run_prune,
+        CronTrigger(hour=settings.backup_hour, minute=30, timezone=settings.timezone),
+        args=[settings],
+        id="prune",
     )
     return scheduler
 

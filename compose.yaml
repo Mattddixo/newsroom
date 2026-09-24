@@ -56,6 +56,7 @@ services:
       - ${STORAGE_DIR:-/storage/newsroom}/db:/data/db
       - ${STORAGE_DIR:-/storage/newsroom}/logos:/data/logos
       - ${STORAGE_DIR:-/storage/newsroom}/backups:/data/backups
+      - ./config:/app/config:ro
     healthcheck:
       test: ["CMD", "newsroom", "healthcheck", "worker"]
       interval: 60s

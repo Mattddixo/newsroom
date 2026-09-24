@@ -24,6 +24,7 @@ RUN uv sync --frozen --no-dev --no-editable
 # ---- test: `make test` builds this stage; lint + tests must pass ---------------
 FROM build AS test
 RUN uv sync --frozen --no-editable
+COPY config ./config
 COPY tests ./tests
 RUN uv run --frozen ruff check . \
  && uv run --frozen ruff format --check . \
@@ -41,10 +42,13 @@ RUN groupadd --system --gid 10001 newsroom \
  && useradd --system --uid 10001 --gid 10001 --no-create-home \
       --home-dir /nonexistent --shell /usr/sbin/nologin newsroom
 COPY --from=build /app/.venv /app/.venv
+# Defaults; compose mounts ./config over this so edits need no rebuild.
+COPY config /app/config
 ENV PATH=/app/.venv/bin:$PATH \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    NEWSROOM_DATA_DIR=/data
+    NEWSROOM_DATA_DIR=/data \
+    NEWSROOM_CONFIG_DIR=/app/config
 WORKDIR /app
 USER 10001:10001
 EXPOSE 8000

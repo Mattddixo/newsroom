@@ -10,8 +10,9 @@ import argparse
 import sys
 import urllib.request
 
-from newsroom import __version__
+from newsroom import __version__, jobs
 from newsroom.backup import backup
+from newsroom.config import ConfigError, load_outlets, load_tags
 from newsroom.db import connect
 from newsroom.log import setup_logging
 from newsroom.migrate import migrate
@@ -32,6 +33,58 @@ def cmd_backup(_: argparse.Namespace) -> int:
     settings = get_settings()
     path = backup(settings.db_path, settings.backup_dir, settings.backup_keep)
     print(f"Backup written: {path}")
+    return 0
+
+
+def cmd_ingest(_: argparse.Namespace) -> int:
+    s = jobs.ingest_articles(get_settings())
+    print(
+        f"Run {s.run_id}: {s.status}. Window {s.window_start:%Y-%m-%d %H:%M} to "
+        f"{s.window_end:%Y-%m-%d %H:%M} UTC. {s.queries} queries ({s.query_errors} failed), "
+        f"{s.fetched} fetched, {s.inserted} new."
+    )
+    return 0 if s.status == "ok" else 1
+
+
+def cmd_retag(_: argparse.Namespace) -> int:
+    print(f"Re-tagged {jobs.retag(get_settings())} articles.")
+    return 0
+
+
+def cmd_prune(_: argparse.Namespace) -> int:
+    print(f"Removed {jobs.prune(get_settings())} articles past retention.")
+    return 0
+
+
+def cmd_config_check(_: argparse.Namespace) -> int:
+    settings = get_settings()
+    try:
+        outlets = load_outlets(settings.config_dir / "outlets.yaml")
+        tags = load_tags(settings.config_dir / "tags.yaml")
+    except ConfigError as exc:
+        print(f"Invalid: {exc}")
+        return 1
+    print(f"OK: {len(outlets)} outlets, {len(tags)} tags.")
+    return 0
+
+
+def cmd_outlets_list(_: argparse.Namespace) -> int:
+    conn = connect(get_settings().db_path)
+    try:
+        rows = conn.execute(
+            "SELECT o.domain, o.display_name, o.country, o.language, o.active,"
+            " count(a.id) AS articles, max(a.published_at) AS latest"
+            " FROM outlets o LEFT JOIN articles a ON a.outlet_id = o.id"
+            " GROUP BY o.id ORDER BY o.domain"
+        ).fetchall()
+    finally:
+        conn.close()
+    for r in rows:
+        state = "" if r["active"] else "  (inactive)"
+        print(
+            f"{r['domain']:<28} {r['country']} {r['language']}  {r['articles']:>6}  "
+            f"{r['latest'] or '-':<20}  {r['display_name']}{state}"
+        )
     return 0
 
 
@@ -68,6 +121,23 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sub.add_parser("worker", help="run the scheduler (used by the worker container)").set_defaults(
         func=cmd_worker
+    )
+    sub.add_parser("ingest", help="fetch new articles now").set_defaults(func=cmd_ingest)
+    sub.add_parser("retag", help="recompute tags after editing tags.yaml").set_defaults(
+        func=cmd_retag
+    )
+    sub.add_parser("prune", help="delete articles past RETENTION_DAYS").set_defaults(func=cmd_prune)
+    config = sub.add_parser("config", help="config file tools").add_subparsers(
+        dest="config_cmd", required=True
+    )
+    config.add_parser("check", help="validate outlets.yaml and tags.yaml").set_defaults(
+        func=cmd_config_check
+    )
+    outlets = sub.add_parser("outlets", help="outlet tools").add_subparsers(
+        dest="outlets_cmd", required=True
+    )
+    outlets.add_parser("list", help="outlets with article counts").set_defaults(
+        func=cmd_outlets_list
     )
     health = sub.add_parser("healthcheck", help="exit 0 if healthy (container healthcheck)")
     health.add_argument("target", choices=["web", "worker"])
