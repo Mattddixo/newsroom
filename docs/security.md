@@ -162,6 +162,6 @@ Each requirement from the project brief, where it's implemented, and how it's ve
 - **Rate-limit state:** limits are kept in memory per `web` process, so they reset on restart.
   For a public site, also set the Cloudflare rate-limiting rule in `going-public.md`.
 - **Egress:** the worker's outbound traffic isn't restricted at the network level. In code it
-  contacts the fixed API hosts, Commons for logos, and (for publication dates) article pages
+  contacts the fixed API hosts (including `data.gdeltproject.org` for GDELT's 15-minute files; redirects to other hosts are refused), Commons for logos, and (for publication dates) article pages
   and robots.txt on the configured outlets' own domains. The last two go through the
   allowlisted fetcher, limited per request to that outlet's domain.

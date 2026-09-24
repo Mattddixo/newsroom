@@ -15,6 +15,7 @@ from newsroom.services.tagging import Tagger, retag_all, sync_tags
 from newsroom.settings import Settings
 from newsroom.sources import funding as funding_sources
 from newsroom.sources.gdelt import GdeltSource
+from newsroom.sources.gdelt_files import GkgFilesSource
 from newsroom.sources.pubdate import Robots
 from newsroom.sources.wikidata import WikidataSource
 
@@ -40,25 +41,28 @@ def ingest_articles(settings: Settings, *, wait: float = 0) -> ingest.RunSummary
     with ingest.ingest_lock(settings.lock_path("ingest"), wait, name="ingest"):
         tagger = sync_config(settings)
         conn = connect(settings.db_path)
-        # GDELT: its limiter stays closed for a minute or more after a 429, and retrying
-        # inside that window keeps it closed. So a refusal ends the run (Throttled) and
-        # the next scheduled run, 15 minutes later, resumes where this one stopped.
-        client = ApiClient(
-            settings.user_agent,
-            min_interval=settings.gdelt_min_interval,
-            max_retries=2,
-            retry_throttled=False,
-        )
-        try:
-            source = GdeltSource(client, group_size=settings.gdelt_group_size)
-            summary = ingest.run_ingest(
-                conn,
-                source,
-                tagger,
-                backfill=timedelta(hours=settings.ingest_backfill_hours),
-                catch_up=timedelta(hours=settings.ingest_catchup_hours),
+        catch_up = timedelta(hours=settings.ingest_catchup_hours)
+        backfill = timedelta(hours=settings.ingest_backfill_hours)
+        source: GkgFilesSource | GdeltSource
+        if settings.ingest_source == "doc":
+            # DOC search API. Its limiter stays closed for a minute or more after a 429 and
+            # retrying inside that window keeps it closed, so a refusal ends the run.
+            client = ApiClient(
+                settings.user_agent,
+                min_interval=settings.gdelt_min_interval,
+                max_retries=2,
+                retry_throttled=False,
             )
-            return summary
+            source = GdeltSource(client, group_size=settings.gdelt_group_size)
+        else:
+            # 15-minute GKG files: static downloads, no per-request quota. Every file
+            # covers every outlet, so a new outlet's backfill is limited to the catch-up
+            # window (48 hours would be ~400 files).
+            client = ApiClient(settings.user_agent, timeout=120.0, min_interval=1.0, max_retries=2)
+            source = GkgFilesSource(client, settings.tmp_dir)
+            backfill = min(backfill, catch_up)
+        try:
+            return ingest.run_ingest(conn, source, tagger, backfill=backfill, catch_up=catch_up)
         finally:
             client.close()
             conn.close()

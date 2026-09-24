@@ -418,6 +418,7 @@ def test_ingest_job_is_gentle_with_gdelt(tmp_path: Path, monkeypatch: pytest.Mon
     from newsroom.settings import Settings
 
     made: list[dict] = []
+    sources: list[object] = []
 
     class Client:
         def __init__(self, user_agent: str, **kw: object) -> None:
@@ -427,9 +428,16 @@ def test_ingest_job_is_gentle_with_gdelt(tmp_path: Path, monkeypatch: pytest.Mon
             pass
 
     monkeypatch.setattr(jobs, "ApiClient", Client)
-    monkeypatch.setattr(jobs.ingest, "run_ingest", lambda *a, **k: None)
+    monkeypatch.setattr(
+        jobs.ingest, "run_ingest", lambda c, source, *a, **k: sources.append(source)
+    )
     monkeypatch.setattr(jobs, "sync_config", lambda s: None)
-    jobs.ingest_articles(Settings(data_dir=tmp_path, contact_email="x@example.org"))
-    [kw] = made
-    assert kw["retry_throttled"] is False  # a refusal ends the run; no retrying into a block
-    assert kw["min_interval"] >= 10.0  # gap after each response finishes
+
+    jobs.ingest_articles(Settings(data_dir=tmp_path))  # default: the 15-minute files
+    assert type(sources[-1]).__name__ == "GkgFilesSource"
+
+    jobs.ingest_articles(Settings(data_dir=tmp_path, ingest_source="doc"))
+    assert type(sources[-1]).__name__ == "GdeltSource"
+    doc = made[-1]
+    assert doc["retry_throttled"] is False  # a refusal ends the run; no retrying into a block
+    assert doc["min_interval"] >= 20.0  # gap after each response finishes

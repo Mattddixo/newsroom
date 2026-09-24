@@ -175,12 +175,15 @@ def run_ingest(
     *,
     now: datetime | None = None,
     backfill: timedelta = timedelta(hours=48),
-    overlap: timedelta = timedelta(hours=1),
+    overlap: timedelta | None = None,
     catch_up: timedelta | None = None,
 ) -> RunSummary:
     """`backfill`: how far back an outlet's first fetch reaches. `catch_up`: how far back
-    an outlet that fell behind may resume (defaults to `backfill`)."""
+    an outlet that fell behind may resume (defaults to `backfill`). `overlap`: how much
+    before the cursor to re-cover (default: the source's own `overlap`, else 1 hour)."""
     now = (now or datetime.now(UTC)).replace(microsecond=0)
+    if overlap is None:
+        overlap = getattr(source, "overlap", timedelta(hours=1))
     catch_up = min(catch_up or backfill, backfill)
     # A previous process that died mid-run leaves a 'running' row; close it out.
     conn.execute(
@@ -223,6 +226,7 @@ def run_ingest(
     try:
         for group_from, group in order:
             group_ok = True
+            reported_progress = False
             for result in source.fetch(group, group_from, now):
                 summary.queries += 1
                 if result.error:
@@ -234,8 +238,9 @@ def run_ingest(
                 _store(conn, source.name, result, outlets, tagger, ids, summary)
                 if result.window_end:
                     _advance(conn, source.name, group, result.window_end)
-            if group_ok:
-                # Everything up to `now` is in for these outlets; the next run starts here.
+                    reported_progress = True
+            if group_ok and not reported_progress:
+                # A source that doesn't report progress: all done means done up to `now`.
                 _advance(conn, source.name, group, now)
             if throttled:
                 log.warning(

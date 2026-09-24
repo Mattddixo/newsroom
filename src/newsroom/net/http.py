@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Callable, Mapping
+from typing import IO
 
 import httpx
 
@@ -29,6 +30,10 @@ class RateLimited(ApiError):
 
 class Throttled(ApiError):
     """Gave up because the server kept saying 'too many requests'."""
+
+
+class NotFound(ApiError):
+    """HTTP 404: the resource doesn't exist (yet). Never retried."""
 
 
 class ApiClient:
@@ -156,3 +161,44 @@ class ApiClient:
                 self._sleep(delay)
         error = Throttled if throttled else ApiError
         raise error(f"giving up after {self.max_retries + 1} attempts: {last_error}")
+
+    def download(self, url: str, dest: IO[bytes], max_bytes: int) -> int:
+        """Stream a file into `dest` (paced, retried on 5xx and network errors). Returns the
+        byte count. Raises NotFound on 404 and ApiError if the file exceeds `max_bytes`."""
+        last_error = "unknown error"
+        for attempt in range(self.max_retries + 1):
+            self._pace()
+            dest.seek(0)
+            dest.truncate()
+            try:
+                try:
+                    with self._client.stream("GET", url) as response:
+                        if response.url.host != httpx.URL(url).host:
+                            raise ApiError(f"refusing redirect to {response.url.host}")
+                        if response.status_code == 404:
+                            raise NotFound(f"HTTP 404 from {response.url.host}")
+                        if response.status_code in RETRY_STATUSES:
+                            last_error = f"HTTP {response.status_code}"
+                        elif response.status_code != 200:
+                            raise ApiError(f"HTTP {response.status_code} from {response.url.host}")
+                        else:
+                            size = 0
+                            for chunk in response.iter_bytes(64 * 1024):
+                                size += len(chunk)
+                                if size > max_bytes:
+                                    raise ApiError(f"file larger than {max_bytes} bytes: {url}")
+                                dest.write(chunk)
+                            dest.seek(0)
+                            return size
+                finally:
+                    self._last = self._clock()
+            except httpx.TransportError as exc:
+                last_error = type(exc).__name__
+            if attempt < self.max_retries:
+                delay = self._backoff(attempt, None, False)
+                log.warning(
+                    "download failed, backing off",
+                    extra={"host": httpx.URL(url).host, "error": last_error, "delay_s": delay},
+                )
+                self._sleep(delay)
+        raise ApiError(f"giving up after {self.max_retries + 1} attempts: {last_error}")

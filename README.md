@@ -130,7 +130,8 @@ for Tailscale at boot.
 | `ENABLE_HSTS`     | `false`            | Only turn on once served over HTTPS                          |
 | `INGEST_INTERVAL_MINUTES` | `15`       | How often the worker ingests (GDELT updates every 15 min)    |
 | `INGEST_OFFSET_MINUTES` | `3`          | Minutes after each GDELT update to run (→ :03, :18, :33, :48) |
-| `INGEST_BACKFILL_HOURS`   | `48`       | How far back a new outlet's first fetch reaches              |
+| `INGEST_BACKFILL_HOURS`   | `48`       | How far back a new outlet's first fetch reaches (DOC API only; the file source uses `INGEST_CATCHUP_HOURS`) |
+| `INGEST_SOURCE`           | `gkg`      | `gkg`: GDELT's 15-minute files (recommended). `doc`: the DOC 2.0 search API |
 | `INGEST_CATCHUP_HOURS`    | `6`        | After downtime or errors, how far back an outlet resumes (older gaps are skipped) |
 | `RETENTION_DAYS`  | `365`              | Articles older than this are deleted nightly (0 = keep forever) |
 | `FEED_OUTLET_CAP` | `3`                | Balanced feed: most articles shown per outlet per hour ("Show: Everything" shows all) |
@@ -160,17 +161,23 @@ language and the GDELT image URL. The image URL is stored but never shown or fet
 There's no article text. Duplicates are removed by canonical URL, which ignores `www.`,
 tracking parameters, fragments and trailing slashes.
 
-- **Failures:** each GDELT request is committed separately, and each group of outlets keeps
-  its own progress marker, moved forward after every successful time slice. A group stops at
-  its first error and the next run resumes it from there; the others carry on. Outlets that
-  fell behind resume at most `INGEST_CATCHUP_HOURS` back. `make status` lists any outlets
-  that are behind.
-- **Rate limits:** GDELT asks for at most one request every 5 seconds per IP. The worker
-  waits 20 s after each response *finishes* before the next request, which is about 10–15
-  requests per 15-minute run. Results come oldest first and every response is kept, so each
-  request moves progress forward. If GDELT still answers "too many requests",
-  the run stops at once rather than retry (retrying while GDELT's block is on keeps it on)
-  and the next scheduled run resumes where it stopped.
+- **Where articles come from:** GDELT publishes everything it processed in each 15-minute
+  window as a file at a fixed address (the Global Knowledge Graph, `YYYYMMDDHHMMSS.gkg.csv.zip`,
+  plus a `.translation` file for non-English sources). Each run downloads the files it
+  hasn't read yet, usually one of each, and keeps only lines whose link belongs to an outlet
+  in `outlets.yaml`: headline, link, time, language, image. These are static downloads with
+  no per-request quota, so they don't trip GDELT's rate limiting the way repeated searches do.
+  Downloads are HTTPS from `data.gdeltproject.org` only (redirects elsewhere are refused),
+  capped at 200 MB, spooled to `db/tmp` and deleted after reading; the zip is read line by
+  line with limits on total size and line length.
+- **Failures:** progress is saved after every file. A download error stops the run and the
+  next run resumes from there. A file that isn't published yet is simply picked up next
+  time; one GDELT never published is passed over only once a later file exists. Outlets
+  that fell behind resume at most `INGEST_CATCHUP_HOURS` back. `make status` lists any
+  outlets that are behind.
+- **DOC API (optional):** `INGEST_SOURCE=doc` uses GDELT's search API instead. It refuses
+  repeated requests from one address within about 20 s, so it waits `GDELT_MIN_INTERVAL`
+  after each response and ends the run at the first refusal.
 - **Dates:** GDELT only reports when it first *saw* an article. Every 15 minutes the worker reads
   the publication time from each new article's page metadata (schema.org `datePublished`,
   `article:published_time`, a few other standard tags) and cards show **Published …**. If the
@@ -328,7 +335,7 @@ Run inside the worker: `docker compose exec worker newsroom <command>`.
 
 | Source | Used for | Terms / attribution |
 |---|---|---|
-| [GDELT Project](https://www.gdeltproject.org/) DOC 2.0 API | Article metadata | Free, no key. Credited on the About page. Requests are paced at ≤ 1 per 6 s. |
+| [GDELT Project](https://www.gdeltproject.org/) 15-minute GKG files (or DOC 2.0 API) | Article metadata | Free, no key. Credited on the About page. About two downloads per 15 minutes. |
 | [Wikidata](https://www.wikidata.org/) | Outlet ↔ item matching, ownership chains, SEC CIK / IRS EIN | CC0. Credited anyway. Descriptive User-Agent with contact, per Wikimedia policy. `maxlag` respected. |
 | [Wikimedia Commons](https://commons.wikimedia.org/) | Outlet logos | Per-file licences. Each outlet page links to its file page. |
 | [SEC EDGAR](https://www.sec.gov/edgar) | Links to public-company filings | US government public data. Fair-access policy: contact User-Agent, ≤ 10 req/s (we use ≤ 5). |
