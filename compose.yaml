@@ -30,7 +30,7 @@ services:
     <<: *app
     ports:
       # Published ONLY on the Tailscale address. Never use 0.0.0.0 here.
-      - "${TAILSCALE_IP:?TAILSCALE_IP must be set in .env (run make init)}:8090:8000"
+      - "${TAILSCALE_IP:?TAILSCALE_IP must be set in .env (run make init)}:${WEB_PORT:-8091}:8000"
     volumes:
       # rw mount is required for SQLite WAL shared memory; the app itself
       # opens the database with mode=ro + query_only.

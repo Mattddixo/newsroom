@@ -26,7 +26,7 @@ Two containers from one image:
 
 | Service  | Role                                                                  | Network                          |
 |----------|-----------------------------------------------------------------------|----------------------------------|
-| `web`    | FastAPI, server-rendered pages. Opens SQLite **read-only**.           | `${TAILSCALE_IP}:8090` only      |
+| `web`    | FastAPI, server-rendered pages. Opens SQLite **read-only**.           | `${TAILSCALE_IP}:8091` only      |
 | `worker` | Scheduler: migrations, hourly ingestion, nightly snapshot and pruning. | Outbound only, no published port |
 
 All state lives under `/storage/newsroom/` (restic already backs that up):
@@ -70,19 +70,19 @@ target of its own:
 1. **`make init`:** writes `.env` (mode 600) with `TAILSCALE_IP` from `tailscale ip -4` and your
    contact email, then creates `/storage/newsroom/{db,backups,logos}` owned by UID 10001.
    It never overwrites other values in an existing `.env`.
-2. **`make host-setup`:** adds the UFW rules (allow 8090 on `tailscale0`, deny it elsewhere) and
+2. **`make host-setup`:** adds the UFW rules (allow 8091 on `tailscale0`, deny it elsewhere) and
    installs a systemd drop-in so Docker waits for Tailscale at boot. It needs sudo and doesn't
    restart Docker. The optional DOCKER-USER rule stays manual (docs/security.md, section 3).
 3. **`make test`:** lint and tests in a Docker build stage.
 4. **`up --wait`:** builds, starts, and waits until both containers are healthy.
-5. **`make verify`:** checks 8090 answers on Tailscale and not on the LAN or localhost.
+5. **`make verify`:** checks 8091 answers on Tailscale and not on the LAN or localhost.
 6. **`config check`:** validates the YAML files.
 
 The contact email goes into the User-Agent of outbound API requests (GDELT, Wikidata/Commons,
 SEC, ProPublica), as Wikimedia's and SEC's policies require. It's never shown on the site,
 and it lives only in `.env`, which is gitignored.
 
-Then add `http://<tailscale-ip>:8090/healthz` to your service-check script.
+Then add `http://<tailscale-ip>:8091/healthz` to your service-check script.
 
 ### Firewall and binding
 
@@ -117,6 +117,7 @@ for Tailscale at boot.
 | Variable          | Default            | Purpose                                                      |
 |-------------------|--------------------|--------------------------------------------------------------|
 | `TAILSCALE_IP`    | (from `make init`) | Only address the web port is published on                    |
+| `WEB_PORT`        | `8091`             | Host port for the web UI (bound to `TAILSCALE_IP` only)      |
 | `CONTACT_EMAIL`   | (asked by `make init`) | Contact in the outbound User-Agent (Wikimedia/SEC policy) |
 | `STORAGE_DIR`     | `/storage/newsroom`| Host path for all persistent state                           |
 | `TZ`              | `America/Toronto`  | Date grouping and schedule timezone                          |
@@ -266,7 +267,7 @@ Run inside the worker: `docker compose exec worker newsroom <command>`.
 ## Operations
 
 - **Health:** `GET /healthz` returns `200 ok` and is never rate limited. Add
-  `http://<tailscale-ip>:8090/healthz` to your service-check script. Both containers also have
+  `http://<tailscale-ip>:8091/healthz` to your service-check script. Both containers also have
   Docker healthchecks: `web` probes `/healthz`, and `worker` checks a heartbeat file it
   refreshes every 30 s. `make ps` shows both.
 - **Status:** `make status` prints the last ingestion run, outlet match counts, funding record
