@@ -106,7 +106,12 @@ class ApiClient:
                 delay = self._backoff(attempt, retry_after)
                 log.warning(
                     "request failed, backing off",
-                    extra={"error": last_error, "attempt": attempt + 1, "delay_s": delay},
+                    extra={
+                        "host": httpx.URL(url).host,
+                        "error": last_error,
+                        "attempt": attempt + 1,
+                        "delay_s": delay,
+                    },
                 )
                 self._sleep(delay)
         raise ApiError(f"giving up after {self.max_retries + 1} attempts: {last_error}")

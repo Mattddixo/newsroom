@@ -185,3 +185,16 @@ def test_client_paces_requests() -> None:
     now["t"] += 1.0
     client.get("https://api.gdeltproject.org/b")
     assert sleeps == [5.0]
+
+
+def test_backoff_log_names_the_host(caplog: pytest.LogCaptureFixture) -> None:
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        return httpx.Response(503) if calls["n"] == 1 else httpx.Response(200, text="{}")
+
+    with caplog.at_level("WARNING", logger="newsroom.net.http"):
+        list(GdeltSource(client_for(handler)).fetch(["cbc.ca"], START, END))
+    [record] = [r for r in caplog.records if r.msg == "request failed, backing off"]
+    assert record.host == "api.gdeltproject.org"  # type: ignore[attr-defined]
