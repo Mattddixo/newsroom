@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import ownership_text, sort_th %}
+{% from "_macros.html" import ownership_links, sort_th %}
 {% block title %}Outlets · newsroom{% endblock %}
 {% block content %}
 <h1>Outlets</h1>
@@ -12,8 +12,8 @@
   {% for o, summary, counts in rows %}
   <tr>
     <td><a href="/outlet/{{ o.domain }}">{% if o.logo_path %}<img class="logo" src="/logos/{{ o.logo_path }}" alt="" width="16" height="16" loading="lazy">{% endif %}{{ o.display_name }}</a></td>
-    <td>{{ o.country }}</td>
-    <td>{{ ownership_text(summary) }}</td>
+    <td><a href="/?country={{ o.country }}" title="Articles from outlets in {{ o.country }}">{{ o.country }}</a></td>
+    <td>{{ ownership_links(summary) }}</td>
     <td class="num">{{ counts[1] or 0 }}</td>
   </tr>
   {% endfor %}

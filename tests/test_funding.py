@@ -304,7 +304,8 @@ def client(conn: sqlite3.Connection, tmp_path: Path) -> TestClient:
 
 def test_panel_shows_owner_funding_with_sources(client: TestClient) -> None:
     html = client.get("/fragments/ownership/exampledaily.ca").text
-    assert "Example Holdings Inc.</span>: Latest annual report (Form 40-F)" in html
+    who = '<a class="who" href="/owner/Q1003">Example Holdings Inc.</a>'
+    assert f"{who}: Latest annual report (Form 40-F)" in html
     assert 'href="https://www.sec.gov/Archives/edgar/data/123456/' in html
     assert "Source: <a" in html and ">SEC EDGAR</a>, retrieved 2026-09-24" in html
 

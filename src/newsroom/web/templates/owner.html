@@ -31,7 +31,7 @@
     {% for o in owned %}
     <tr>
       <td><a href="/outlet/{{ o.outlet.domain }}">{{ o.outlet.display_name }}</a></td>
-      <td>{% if o.outlet.entity_id == node.id %}<span class="muted">(this entity)</span>{% elif o.via %}{{ o.via | join(" → ") }}{% else %}<span class="muted">directly</span>{% endif %}</td>
+      <td>{% if o.outlet.entity_id == node.id %}<span class="muted">(this entity)</span>{% elif o.via %}{% for v in o.via %}<a href="/owner/{{ v.qid }}">{{ v.name }}</a>{% if not loop.last %} → {% endif %}{% endfor %}{% else %}<span class="muted">directly</span>{% endif %}</td>
       <td class="num">{{ o.recent }}</td>
       <td class="num">{{ o.total }}</td>
     </tr>

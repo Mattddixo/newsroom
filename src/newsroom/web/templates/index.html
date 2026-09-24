@@ -14,6 +14,11 @@
     <button type="submit">Search</button>
   </div>
   {% if options %}
+  {#- Collapsed by default. Open while any filter is set, so what narrows the list is
+      always visible (and it stays open while you adjust it). #}
+  {%- set n_filters = [filters.tag, filters.outlet, filters.country, filters.owner, filters.date_from, filters.date_to] | select | list | length %}
+  <details class="more-filters"{% if n_filters %} open{% endif %}>
+  <summary>Filters{% if n_filters %} <span class="badge">{{ n_filters }} active</span>{% endif %}</summary>
   <div class="filters-row">
     <label>Tag
       <select name="tag" {{ live | safe }}>
@@ -52,6 +57,7 @@
     <label>From <input type="date" name="from" value="{{ filters.date_from or '' }}" {{ live | safe }}></label>
     <label>To <input type="date" name="to" value="{{ filters.date_to or '' }}" {{ live | safe }}></label>
   </div>
+  </details>
   {% endif %}
   {% if page and page.total %}
   <div class="results-bar">
@@ -99,7 +105,7 @@
   {#- Checks every 2 minutes; never reloads the page by itself. #}
   <div class="new-articles" aria-live="polite"
        hx-get="/fragments/new?{{ filters.filter_params() | qs }}{{ '&' if filters.filter_params() }}since={{ latest_id }}"
-       hx-trigger="every 120s" hx-swap="innerHTML"></div>
+       hx-trigger="every 120s" hx-swap="innerHTML" hx-disinherit="*"></div>
   {% endif %}
   {% for group in page.groups %}
   <section class="group" {% if group.kind != "none" %}aria-labelledby="group-{{ loop.index }}"{% else %}aria-label="Search results"{% endif %}>

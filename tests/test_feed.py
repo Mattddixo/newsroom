@@ -338,3 +338,15 @@ def test_article_date_on_every_card(client: TestClient) -> None:
     now = datetime(2026, 9, 24, tzinfo=TZ)
     assert _article_date(datetime(2026, 9, 3, 7, 5, tzinfo=TZ), now) == "Sep 3, 07:05"
     assert _article_date(datetime(2025, 12, 31, 23, 59, tzinfo=TZ), now) == "Dec 31 2025, 23:59"
+
+
+def test_filter_options_collapse_unless_a_filter_is_set(client: TestClient) -> None:
+    html = client.get("/").text
+    assert '<details class="more-filters">' in html  # collapsed
+    assert "<summary>Filters</summary>" in html
+    assert 'name="q"' in html.split('<details class="more-filters"')[0]  # search stays visible
+    searched = client.get("/", params={"q": "housing"}).text
+    assert '<details class="more-filters">' in searched  # a search alone isn't a filter
+    filtered = client.get("/", params={"tag": "housing", "from": "2026-09-01"}).text
+    assert '<details class="more-filters" open>' in filtered
+    assert '<span class="badge">2 active</span>' in filtered

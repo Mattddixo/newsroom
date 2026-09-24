@@ -12,6 +12,20 @@
 {%- endif %}
 {%- endmacro %}
 
+{# Same line with every name linked to its owner page, for tables (not inside <summary>). #}
+{% macro ownership_links(summary) -%}
+{% if summary.direct -%}
+  {% for edge, node in summary.direct -%}
+    {% if edge.relation == "owned_by" %}Owned by{% else %}Parent organization:{% endif %} <a href="/owner/{{ node.qid }}">{{ node.name }}</a>{% if edge.share %} ({{ edge.share | pct }}){% endif %}{% if not loop.last %}; {% endif %}
+  {%- endfor %}
+  {%- if summary.ultimate %} · ultimately {% for n in summary.ultimate %}<a href="/owner/{{ n.qid }}">{{ n.name }}</a>{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}
+{%- elif summary.entity -%}
+  {{ no_owner() }}
+{%- else -%}
+  Owner: {{ not_disclosed() }}
+{%- endif %}
+{%- endmacro %}
+
 {# Full chain as nested lists, every link with its source. #}
 {% macro chain(steps) -%}
 <ul class="chain">
@@ -45,7 +59,7 @@
 <ul class="funding">
   {% for r in rows %}
   <li>
-    <span class="who">{{ graph.nodes[r.entity_id].name }}</span>: {{ r.label }}
+    {% set who = graph.nodes[r.entity_id] %}<a class="who" href="/owner/{{ who.qid }}">{{ who.name }}</a>: {{ r.label }}
     {%- if r.amount is not none %}: <strong>{{ r.amount | money(r.currency) }}</strong>{% endif %}
     {%- if r.period %} · {{ r.period }}{% endif %}
     {%- if r.funder %} · from {{ r.funder }}{% endif %}

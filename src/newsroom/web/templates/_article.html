@@ -15,7 +15,7 @@
     {% endif %}
   </div>
   {% if graph %}
-  <details class="own" hx-get="/fragments/ownership/{{ a.outlet_domain }}" hx-trigger="toggle once" hx-target="find .own-panel" hx-swap="innerHTML">
+  <details class="own" hx-get="/fragments/ownership/{{ a.outlet_domain }}" hx-trigger="toggle once" hx-target="find .own-panel" hx-swap="innerHTML" hx-disinherit="*">
     <summary>{{ ownership_text(graph.summary(a.outlet_entity_id)) }}</summary>
     <div class="own-panel"><a href="/outlet/{{ a.outlet_domain }}">Ownership details for {{ a.outlet_name }}</a></div>
   </details>

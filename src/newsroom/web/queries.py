@@ -9,7 +9,7 @@ from datetime import date, datetime, time, timedelta
 from itertools import groupby
 from zoneinfo import ZoneInfo
 
-from newsroom.ownership_view import Graph
+from newsroom.ownership_view import Graph, Node
 from newsroom.services.ingest import parse_ts, ts
 from newsroom.sources.wikidata import QID_RE
 
@@ -382,7 +382,7 @@ def outlet(conn: sqlite3.Connection, domain: str) -> sqlite3.Row | None:
 @dataclass
 class OwnedOutlet:
     outlet: sqlite3.Row
-    via: list[str]  # names of intermediate entities, top-down
+    via: list[Node]  # intermediate entities, top-down
     total: int
     recent: int
 
@@ -402,7 +402,7 @@ def owned_outlets(
             path = paths.get(eid)
         if path is None:
             continue
-        via = [graph.nodes[i].name for i in path[1:-1]]
+        via = [graph.nodes[i] for i in path[1:-1]]
         total, recent = counts.get(o["id"], (0, 0))
         out.append(OwnedOutlet(o, via, total, recent or 0))
     out.sort(key=lambda x: (-x.recent, -x.total, x.outlet["display_name"]))

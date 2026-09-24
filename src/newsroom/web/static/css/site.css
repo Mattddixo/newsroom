@@ -166,7 +166,33 @@ h1 {
   align-items: end;
 }
 
-.filters-row + .filters-row {
+.more-filters > summary {
+  cursor: pointer;
+  width: fit-content;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.more-filters > summary:hover,
+.more-filters[open] > summary {
+  color: var(--fg);
+}
+
+.more-filters .badge {
+  margin-left: 0.25rem;
+  padding: 0 0.4rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  background: var(--surface);
+  color: var(--fg);
+}
+
+.more-filters > .filters-row {
+  margin-top: 0.5rem;
+}
+
+.filters-row + .filters-row,
+.more-filters > .filters-row {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(7.5rem, 1fr));
 }

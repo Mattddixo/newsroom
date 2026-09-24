@@ -3,7 +3,7 @@
 {% block title %}{{ outlet.display_name }} · newsroom{% endblock %}
 {% block content %}
 <h1>{% if outlet.logo_path %}<img class="logo-lg" src="/logos/{{ outlet.logo_path }}" alt="" width="32" height="32">{% endif %}{{ outlet.display_name }}</h1>
-<p class="muted"><a href="https://{{ outlet.domain }}/" target="_blank" rel="noopener noreferrer">{{ outlet.domain }}</a> · {{ outlet.country }} · {{ outlet.language }}</p>
+<p class="muted"><a href="https://{{ outlet.domain }}/" target="_blank" rel="noopener noreferrer">{{ outlet.domain }}</a> · <a href="/?country={{ outlet.country }}" title="Articles from outlets in {{ outlet.country }}">{{ outlet.country }}</a> · {{ outlet.language }}</p>
 
 <section aria-labelledby="own-h">
   <h2 id="own-h">Ownership</h2>

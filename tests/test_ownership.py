@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import sqlite3
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -350,3 +351,57 @@ def test_outlets_and_about_pages(client: TestClient) -> None:
     html = client.get("/outlets").text
     assert "Example Daily" in html and "Not publicly disclosed" in html
     assert 'id="not-disclosed"' in client.get("/about").text
+
+
+def test_tables_and_funding_link_to_owner_pages(client: TestClient) -> None:
+    outlets = client.get("/outlets").text
+    assert 'Owned by <a href="/owner/Q1002">Example Media Group</a>' in outlets
+    assert 'ultimately <a href="/owner/Q1003">Example Holdings Inc.</a>' in outlets
+    assert 'Owner: <a href="/about#not-disclosed">Not publicly disclosed</a>' in outlets
+    assert 'href="/?country=CA"' in outlets
+    owner = client.get("/owner/Q1003").text
+    assert '<a href="/owner/Q1002">Example Media Group</a>' in owner  # held through
+
+
+def test_panel_links_are_not_captured_by_the_panel(client: TestClient) -> None:
+    """The <details> loads its panel with hx-target/hx-swap. Without hx-disinherit, the
+    (boosted) links inside the panel inherit that target, find nothing and do nothing."""
+    html = client.get("/").text
+    for tag in re.findall(r"<details class=\"own\"[^>]*>", html):
+        assert 'hx-disinherit="*"' in tag
+    for tag in re.findall(r"<div class=\"new-articles\"[^>]*>", html):
+        assert 'hx-disinherit="*"' in tag
+
+
+def test_every_internal_link_opens(client: TestClient) -> None:
+    """Crawl every page and panel; each same-site link must load, and #anchors must exist."""
+    start = ["/", "/outlets", "/owners", "/about"]
+    start += [f"/fragments/ownership/{o.domain}" for o in OUTLETS]
+    seen: set[str] = set()
+    queue = list(start)
+    ids: dict[str, set[str]] = {}
+    anchors: list[tuple[str, str, str]] = []
+    while queue:
+        url = queue.pop()
+        if url in seen:
+            continue
+        seen.add(url)
+        resp = client.get(url)
+        assert resp.status_code == 200, url
+        if "text/html" not in resp.headers["content-type"]:
+            continue
+        html = resp.text
+        ids[url] = set(re.findall(r'\bid="([^"]+)"', html))
+        for href in re.findall(r'href="(/[^"]*)"', html):
+            href = href.replace("&amp;", "&")
+            path, _, anchor = href.partition("#")
+            if anchor:
+                anchors.append((url, path or url, anchor))
+            if path and not path.startswith("/static/"):
+                queue.append(path)
+        assert len(seen) < 400
+    for page, target, anchor in anchors:
+        assert anchor in ids.get(target, set()), f"{page} links to missing {target}#{anchor}"
+    assert any(u.startswith("/owner/") for u in seen) and any(
+        u.startswith("/outlet/") for u in seen
+    )
