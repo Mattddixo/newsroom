@@ -292,7 +292,8 @@ def cmd_status(_: argparse.Namespace) -> int:
     try:
         one = lambda sql: conn.execute(sql).fetchone()  # noqa: E731
         run = one(
-            "SELECT status, started_at, finished_at, inserted, query_errors FROM ingest_runs"
+            "SELECT status, started_at, finished_at, queries, inserted, query_errors"
+            " FROM ingest_runs"
             " ORDER BY id DESC LIMIT 1"
         )
         ok = one("SELECT max(finished_at) FROM ingest_runs WHERE status = 'ok'")[0]
@@ -315,7 +316,8 @@ def cmd_status(_: argparse.Namespace) -> int:
     if run:
         if run["status"] == "running":
             print(
-                f"  current run:     running since {run['started_at']} (articles grow as it goes)"
+                f"  current run:     running since {run['started_at']}: {run['queries']}"
+                f" requests done ({run['query_errors']} failed), {run['inserted']} new so far"
             )
         else:
             print(

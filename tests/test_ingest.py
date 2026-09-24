@@ -239,3 +239,31 @@ def test_ingest_lock_gives_up_after_wait(tmp_path: Path) -> None:
         pass
     assert sleeps == [5, 5, 5]
     holder.close()
+
+
+def test_progress_is_recorded_while_running(conn: sqlite3.Connection) -> None:
+    seen: list[tuple[int, int, int]] = []
+
+    class Watching(FakeSource):
+        def fetch(self, domains, start, end):  # type: ignore[no-untyped-def]
+            yield QueryResult("a", [rec("https://cbc.ca/p1", "One", T)])
+            seen.append(
+                tuple(
+                    conn.execute(  # type: ignore[arg-type]
+                        "SELECT queries, query_errors, inserted FROM ingest_runs"
+                        " WHERE status = 'running'"
+                    ).fetchone()
+                )
+            )
+            yield QueryResult("b", error="HTTP 503")
+            seen.append(
+                tuple(
+                    conn.execute(  # type: ignore[arg-type]
+                        "SELECT queries, query_errors, inserted FROM ingest_runs"
+                        " WHERE status = 'running'"
+                    ).fetchone()
+                )
+            )
+
+    run_ingest(conn, Watching(), Tagger(TAGS), now=NOW)
+    assert seen == [(1, 0, 1), (2, 1, 1)]

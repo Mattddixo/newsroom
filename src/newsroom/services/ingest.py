@@ -174,6 +174,7 @@ def run_ingest(
             summary.queries += 1
             if result.error:
                 summary.query_errors += 1
+                _progress(conn, summary)
                 continue
             retrieved = ts(datetime.now(UTC))
             conn.execute("BEGIN IMMEDIATE")
@@ -204,6 +205,7 @@ def run_ingest(
                     if cur.rowcount == 1:
                         summary.inserted += 1
                         tag_article(conn, tagger, cur.lastrowid or 0, rec.title, ids)
+                _progress(conn, summary)  # same transaction: counts match what is saved
                 conn.execute("COMMIT")
             except Exception:
                 conn.execute("ROLLBACK")
@@ -237,6 +239,15 @@ def run_ingest(
         extra={k: v for k, v in vars(summary).items() if k not in {"window_start", "window_end"}},
     )
     return summary
+
+
+def _progress(conn: sqlite3.Connection, s: RunSummary) -> None:
+    """Record a running run's counts after each request, for `newsroom status`."""
+    conn.execute(
+        "UPDATE ingest_runs SET queries = ?, query_errors = ?, fetched = ?, inserted = ?"
+        " WHERE id = ?",
+        (s.queries, s.query_errors, s.fetched, s.inserted, s.run_id),
+    )
 
 
 def prune(conn: sqlite3.Connection, retention_days: int, now: datetime | None = None) -> int:
