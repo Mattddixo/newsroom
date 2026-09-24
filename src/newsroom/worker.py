@@ -27,11 +27,11 @@ log = logging.getLogger(__name__)
 
 HEARTBEAT = Path("/tmp/newsroom-worker.heartbeat")  # noqa: S108 - tmpfs inside the container
 HEARTBEAT_MAX_AGE = 180
-# Scheduled jobs queue behind each other rather than being skipped: the first
-# ingestion (72 h backfill) can take half an hour, and a skipped ownership run
-# would otherwise not come round again for 6 hours.
+# Each kind of job has its own lock, so these waits only matter when the same kind is
+# already running from the CLI (e.g. `make ownership` during the scheduled run).
 INGEST_WAIT = 30 * 60
 RECORDS_WAIT = 90 * 60
+PUBDATES_WAIT = 0  # runs every 15 minutes anyway
 
 
 def beat(path: Path = HEARTBEAT) -> None:
@@ -56,7 +56,7 @@ def run_ingest(settings: Settings) -> None:
     try:
         jobs.ingest_articles(settings, wait=INGEST_WAIT)
     except IngestBusy:
-        log.warning("ingest skipped: another job held the lock for 30 minutes")
+        log.warning("ingest skipped: another ingest held the lock for 30 minutes")
     except Exception:
         log.exception("ingest failed")
 
@@ -66,9 +66,18 @@ def run_ownership(settings: Settings) -> None:
         jobs.resolve_ownership(settings, wait=RECORDS_WAIT)
         jobs.refresh_funding(settings, wait=RECORDS_WAIT)
     except IngestBusy:
-        log.warning("ownership/funding refresh skipped: another job held the lock for 90 minutes")
+        log.warning("ownership/funding refresh skipped: another one held the lock for 90 minutes")
     except Exception:
         log.exception("ownership/funding refresh failed")
+
+
+def run_pubdates(settings: Settings) -> None:
+    try:
+        jobs.publication_dates(settings, wait=PUBDATES_WAIT)
+    except IngestBusy:
+        log.info("publication dates skipped: a previous pass is still running")
+    except Exception:
+        log.exception("publication dates failed")
 
 
 def run_prune(settings: Settings) -> None:
@@ -91,6 +100,17 @@ def ingest_trigger(settings: Settings) -> CronTrigger | IntervalTrigger:
     return IntervalTrigger(minutes=every)
 
 
+def pubdates_trigger(settings: Settings) -> CronTrigger | IntervalTrigger:
+    """Same cadence as ingestion, 5 minutes later, so a fresh batch is usually waiting.
+    Independent of it: a slow or failing GDELT run doesn't hold dates back."""
+    base = ingest_trigger(settings)
+    every = max(1, settings.ingest_interval_minutes)
+    if isinstance(base, CronTrigger) and every < 60:
+        offset = (settings.ingest_offset_minutes + 5) % every
+        return CronTrigger(minute=f"{offset}-59/{every}", timezone="UTC")
+    return IntervalTrigger(minutes=min(every, 15))
+
+
 def build_scheduler(settings: Settings) -> BlockingScheduler:
     scheduler = BlockingScheduler(
         timezone=settings.timezone,
@@ -109,6 +129,13 @@ def build_scheduler(settings: Settings) -> BlockingScheduler:
         args=[settings],
         id="ingest",
         next_run_time=datetime.now().astimezone() + timedelta(seconds=30),
+    )
+    scheduler.add_job(
+        run_pubdates,
+        pubdates_trigger(settings),
+        args=[settings],
+        id="pubdates",
+        next_run_time=datetime.now().astimezone() + timedelta(minutes=1),
     )
     # Only outlets not checked within OWNERSHIP_REFRESH_DAYS are re-resolved on each run.
     scheduler.add_job(

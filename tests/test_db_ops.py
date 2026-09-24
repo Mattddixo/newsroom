@@ -189,3 +189,31 @@ def test_status_lists_outlets_behind(
     out = capsys.readouterr().out
     assert "outlets current: 1 of 3" in out
     assert "behind:          b.ca, c.ca" in out
+
+
+def test_pubdates_run_five_minutes_after_ingest() -> None:
+    from newsroom.settings import Settings
+    from newsroom.worker import pubdates_trigger
+
+    trigger = pubdates_trigger(Settings())
+    now = datetime(2026, 9, 24, 0, 0, 1, tzinfo=UTC)
+    times, previous = [], None
+    for _ in range(4):
+        now = trigger.get_next_fire_time(previous, now)
+        times.append(now.astimezone(UTC).strftime("%H:%M"))
+        previous = now
+        now = now + timedelta(seconds=1)
+    assert times == ["00:08", "00:23", "00:38", "00:53"]
+
+
+def test_job_kinds_have_independent_locks(tmp_path: Path) -> None:
+    from newsroom.services.ingest import IngestBusy, ingest_lock
+    from newsroom.settings import Settings
+
+    s = Settings(data_dir=tmp_path)
+    assert len({s.lock_path(k) for k in ("ingest", "records", "pubdates")}) == 3
+    with ingest_lock(s.lock_path("ingest")):
+        with ingest_lock(s.lock_path("records")), ingest_lock(s.lock_path("pubdates")):
+            pass  # a long ingest doesn't block the others
+        with pytest.raises(IngestBusy, match="ingest"), ingest_lock(s.lock_path("ingest")):
+            pass

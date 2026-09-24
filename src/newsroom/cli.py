@@ -382,6 +382,8 @@ def cmd_status(_: argparse.Namespace) -> int:
 
 def cmd_pubdates(args: argparse.Namespace) -> int:
     s = jobs.publication_dates(get_settings(), args.limit)
+    if s is None:
+        raise ConfigError("publication dates are off (PUBDATE_FETCH) or CONTACT_EMAIL is not set")
     print(
         f"Pages read: {s.checked}. Dates found: {s.found}; no date on page: {s.no_date};"
         f" robots.txt disallows: {s.robots_disallowed}; failed: {s.failed}"

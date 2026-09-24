@@ -37,7 +37,7 @@ def sync_config(settings: Settings) -> Tagger:
 
 
 def ingest_articles(settings: Settings, *, wait: float = 0) -> ingest.RunSummary:
-    with ingest.ingest_lock(settings.lock_path, wait):
+    with ingest.ingest_lock(settings.lock_path("ingest"), wait, name="ingest"):
         tagger = sync_config(settings)
         conn = connect(settings.db_path)
         client = ApiClient(settings.user_agent, min_interval=settings.gdelt_min_interval)
@@ -49,7 +49,6 @@ def ingest_articles(settings: Settings, *, wait: float = 0) -> ingest.RunSummary
                 tagger,
                 backfill=timedelta(hours=settings.ingest_backfill_hours),
             )
-            _publication_dates(settings, conn)
             return summary
         finally:
             client.close()
@@ -104,21 +103,22 @@ def _publication_dates(
     )
 
 
-def publication_dates(settings: Settings, limit: int | None = None) -> pubdates.PubDateSummary:
-    """CLI entry point: run the publication-date pass now."""
-    with ingest.ingest_lock(settings.lock_path):
+def publication_dates(
+    settings: Settings, limit: int | None = None, *, wait: float = 0
+) -> pubdates.PubDateSummary | None:
+    """Run the publication-date pass (worker every 15 min, or the CLI). None when turned
+    off (PUBDATE_FETCH) or CONTACT_EMAIL is not set."""
+    with ingest.ingest_lock(settings.lock_path("pubdates"), wait, name="publication-date"):
         conn = connect(settings.db_path)
         try:
             summary = _publication_dates(settings, conn, limit)
         finally:
             conn.close()
-    if summary is None:
-        raise ConfigError("publication dates are off (PUBDATE_FETCH) or CONTACT_EMAIL is not set")
     return summary
 
 
 def retag(settings: Settings) -> int:
-    with ingest.ingest_lock(settings.lock_path):
+    with ingest.ingest_lock(settings.lock_path("ingest"), name="ingest"):
         tagger = sync_config(settings)
         conn = connect(settings.db_path)
         try:
@@ -155,7 +155,7 @@ def resolve_ownership(
     """Match and resolve outlets that are due (or the given domains), then refresh logos."""
     now = datetime.now(UTC).replace(microsecond=0)
     client = wikidata_client(settings)
-    with ingest.ingest_lock(settings.lock_path, wait):
+    with ingest.ingest_lock(settings.lock_path("records"), wait, name="ownership/funding"):
         sync_config(settings)
         conn = connect(settings.db_path)
         try:
@@ -202,7 +202,7 @@ def refresh_funding(
         "us_ein": lambda v: funding_sources.fetch_propublica(propublica, v),
         "ca_bn": funding_sources.cra_records,
     }
-    with ingest.ingest_lock(settings.lock_path, wait):
+    with ingest.ingest_lock(settings.lock_path("records"), wait, name="ownership/funding"):
         conn = connect(settings.db_path)
         try:
             summary = funding.refresh_funding(

@@ -133,7 +133,7 @@ for Tailscale at boot.
 | `INGEST_BACKFILL_HOURS`   | `48`       | How far back ingestion ever reaches (first run, and catch-up after downtime) |
 | `RETENTION_DAYS`  | `365`              | Articles older than this are deleted nightly (0 = keep forever) |
 | `GDELT_GROUP_SIZE`| `8`                | Outlets per GDELT query                                      |
-| `GDELT_MIN_INTERVAL` | `6`             | Seconds between GDELT requests (GDELT asks for ≥ 5)          |
+| `GDELT_MIN_INTERVAL` | `10`            | Seconds between GDELT requests (GDELT asks for ≥ 5; it still sends 429s at 6) |
 | `OWNERSHIP_REFRESH_DAYS` | `7`         | Re-check each outlet's Wikidata chain after this many days   |
 | `BACKUP_HOUR`     | `3`                | Local hour for the nightly snapshot                          |
 | `BACKUP_KEEP`     | `14`               | Snapshots to keep                                            |
@@ -165,11 +165,11 @@ tracking parameters, fragments and trailing slashes.
 - **Rate limits:** GDELT allows about one request every 5 seconds and we send one every 6.
   When GDELT answers "429, too many requests", the worker waits 30 s, then 60 s, then 2 min,
   and slows its pace for the rest of that run.
-- **Dates:** GDELT only reports when it first *saw* an article. After each run the worker reads
+- **Dates:** GDELT only reports when it first *saw* an article. Every 15 minutes the worker reads
   the publication time from each new article's page metadata (schema.org `datePublished`,
   `article:published_time`, a few other standard tags) and cards show **Published …**. If the
   page gives no usable date, cards show **Seen …** (GDELT's time). Limits: articles from the
-  last `PUBDATE_MAX_AGE_DAYS` (1) only, at most `PUBDATE_PER_RUN` (150) pages per run, one
+  last `PUBDATE_MAX_AGE_DAYS` (1) only, at most `PUBDATE_PER_RUN` (150) pages per pass, one
   request per second, robots.txt obeyed, sites that answer 403/429/5xx left alone for the run,
   at most two tries per page, only the first 1.5 MB read and only the date kept. Turn it off
   with `PUBDATE_FETCH=false`. Run it by hand with `docker compose exec worker newsroom pubdates`.
@@ -294,11 +294,13 @@ Run inside the worker: `docker compose exec worker newsroom <command>`.
   | Job | When |
   |---|---|
   | Ingestion | :03, :18, :33, :48 each hour (3 min after each GDELT update), plus once 30 s after start |
+  | Publication dates | :08, :23, :38, :53 (5 min after each ingest), plus once 1 min after start |
   | Ownership + funding | Every 6 h for records older than 7 days, first run 3 min after start |
   | Backup | 03:00 |
   | Retention prune | 03:30 |
 
-  Jobs share a lock, so they never overlap.
+  Each kind of job has its own lock: two ingests never overlap, but a slow GDELT run doesn't
+  hold up publication dates or ownership.
 - **Backups:** every night the worker writes a snapshot with SQLite's online backup API.
   The snapshot is integrity-checked and then atomically renamed, so restic never sees a
   half-written file. The last `BACKUP_KEEP` snapshots are kept. Run `make backup-db` for one on

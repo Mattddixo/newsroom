@@ -45,7 +45,7 @@ class Settings:
     ingest_backfill_hours: int = 48
     retention_days: int = 365
     gdelt_group_size: int = 8
-    gdelt_min_interval: float = 6.0
+    gdelt_min_interval: float = 10.0
     ownership_refresh_days: int = 7
     pubdate_fetch: bool = True  # read publication dates from article pages
     pubdate_per_run: int = 150
@@ -64,9 +64,10 @@ class Settings:
     def logo_dir(self) -> Path:
         return self.data_dir / "logos"
 
-    @property
-    def lock_path(self) -> Path:
-        return self.data_dir / "db" / "ingest.lock"
+    def lock_path(self, job: str) -> Path:
+        """One lock per kind of job ("ingest", "records", "pubdates"), so a slow GDELT
+        run never holds up ownership, funding or publication dates."""
+        return self.data_dir / "db" / f"{job}.lock"
 
     @property
     def user_agent(self) -> str:
@@ -94,7 +95,7 @@ def load_settings() -> Settings:
         ingest_backfill_hours=int(env.get("INGEST_BACKFILL_HOURS", "48")),
         retention_days=int(env.get("RETENTION_DAYS", "365")),
         gdelt_group_size=int(env.get("GDELT_GROUP_SIZE", "8")),
-        gdelt_min_interval=float(env.get("GDELT_MIN_INTERVAL", "6")),
+        gdelt_min_interval=float(env.get("GDELT_MIN_INTERVAL", "10")),
         ownership_refresh_days=int(env.get("OWNERSHIP_REFRESH_DAYS", "7")),
         pubdate_fetch=_bool(env.get("PUBDATE_FETCH"), True),
         pubdate_per_run=int(env.get("PUBDATE_PER_RUN", "150")),

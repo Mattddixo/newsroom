@@ -46,8 +46,10 @@ def ingest_lock(
     wait: float = 0,
     poll: float = 5.0,
     sleep: Callable[[float], None] = time.sleep,
+    name: str = "ingest",
 ) -> Iterator[None]:
-    """One writing job at a time (ingest, ownership, funding, retag; worker or CLI).
+    """One job of a kind at a time, worker or CLI. Each kind has its own lock file
+    (Settings.lock_path); SQLite's busy timeout serialises their short writes.
 
     With `wait`, keep trying for that many seconds before giving up, so a scheduled
     job queues behind a long-running one instead of being skipped."""
@@ -61,10 +63,12 @@ def ingest_lock(
             except BlockingIOError as exc:
                 if waited >= wait:
                     raise IngestBusy(
-                        "another job (ingest, ownership or funding) is running; try again shortly"
+                        f"another {name} job is already running; try again shortly"
                     ) from exc
                 if waited == 0:
-                    log.info("waiting for another job to finish", extra={"max_wait_s": wait})
+                    log.info(
+                        "waiting for another job to finish", extra={"job": name, "max_wait_s": wait}
+                    )
                 sleep(poll)
                 waited += poll
         try:
