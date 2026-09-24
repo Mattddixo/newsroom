@@ -59,9 +59,15 @@
   {% if filters.active or filters.before %}
   <p class="empty">No articles match these filters. <a href="/">Clear filters</a></p>
   {% else %}
-  <p class="empty">No articles yet. Ingestion runs every hour; the first run starts shortly after the worker starts.</p>
+  <p class="empty">No articles yet. Ingestion runs every {{ interval }} minutes; the first run starts shortly after the worker starts.</p>
   {% endif %}
 {% else %}
+  {% if not filters.before and not filters.q %}
+  {#- Checks every 2 minutes; never reloads the page by itself. #}
+  <div class="new-articles" aria-live="polite"
+       hx-get="/fragments/new?{{ filters.params(since=latest_id) | qs }}"
+       hx-trigger="every 120s" hx-swap="innerHTML"></div>
+  {% endif %}
   {% for day in page.days %}
   <section class="day" aria-labelledby="day-{{ loop.index }}">
     <h2 id="day-{{ loop.index }}">{{ day_label(day.day) }}</h2>
@@ -80,6 +86,6 @@
 {% endif %}
 
 {% if last_ingest %}
-<p class="meta-note">Last updated {{ last_ingest.strftime('%Y-%m-%d %H:%M %Z') }}.{% if stale %} Updates are currently delayed.{% endif %}</p>
+<p class="meta-note">Last updated {{ last_ingest.strftime('%Y-%m-%d %H:%M %Z') }}; new articles are fetched every {{ interval }} minutes.{% if stale %} Updates are currently delayed.{% endif %}</p>
 {% endif %}
 {% endblock %}

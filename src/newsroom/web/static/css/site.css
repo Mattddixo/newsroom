@@ -318,6 +318,26 @@ button {
   color: var(--fg);
 }
 
+.new-articles:empty {
+  display: none;
+}
+
+.new-link {
+  display: block;
+  margin: 0.75rem 0 0;
+  padding: 0.4rem 0.75rem;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  text-align: center;
+  text-decoration: none;
+  font-size: 0.9rem;
+}
+
+.new-link:hover,
+.new-link:focus-visible {
+  background: var(--surface);
+}
+
 .pager {
   margin: 1.5rem 0;
 }

@@ -190,3 +190,47 @@ def test_empty_and_invalid_params_redirect_to_clean_url(client: TestClient) -> N
     assert resp.status_code == 303
     assert resp.headers["location"] == "/?tag=housing"
     assert client.get("/?tag=housing", follow_redirects=False).status_code == 200
+
+
+def test_new_articles_notice(settings: Settings, client: TestClient) -> None:
+    html = client.get("/").text
+    m = re.search(r'hx-get="/fragments/new\?since=(\d+)"', html)
+    assert m, "feed polls for new articles"
+    assert 'hx-trigger="every 120s"' in html
+    since = m.group(1)
+    assert client.get(f"/fragments/new?since={since}").text.strip() == ""
+
+    from newsroom.db import connect
+
+    conn = connect(settings.db_path)
+    run_ingest(
+        conn,
+        FakeSource(
+            [
+                QueryResult(
+                    "q",
+                    [
+                        rec("https://cbc.ca/new1", "Fresh housing story", NOW),
+                        rec("https://cbc.ca/new2", "Another fresh story", NOW),
+                    ],
+                )
+            ]
+        ),
+        Tagger(TAGS),
+        now=NOW + timedelta(minutes=15),
+    )
+    conn.close()
+
+    frag = client.get(f"/fragments/new?since={since}").text
+    assert '<a class="new-link" href="/">2 new articles · Show</a>' in frag
+    tagged = client.get(f"/fragments/new?since={since}&tag=housing").text
+    assert "1 new article · Show" in tagged and 'href="/?tag=housing"' in tagged
+    assert client.get(f"/fragments/new?since={since}&country=US").text.strip() == ""
+    for bad in ("", "abc", "-1", "9" * 20):
+        assert client.get(f"/fragments/new?since={bad}").text.strip() == ""
+
+
+def test_no_polling_on_search_or_older_pages(client: TestClient) -> None:
+    assert "/fragments/new" not in client.get("/", params={"q": "housing"}).text
+    html = client.get("/").text
+    assert "every 15 minutes" in html  # meta note reflects the schedule

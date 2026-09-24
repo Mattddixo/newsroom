@@ -122,13 +122,14 @@ class FeedPage:
     count: int
 
 
-def feed(conn: sqlite3.Connection, f: FeedFilters, tz: ZoneInfo) -> FeedPage:
+def _conditions(f: FeedFilters, tz: ZoneInfo) -> tuple[list[str], list[object]] | None:
+    """SQL conditions for the filters (fixed strings, values bound). None = matches nothing."""
     where: list[str] = []
     args: list[object] = []
     if f.q:
         match = fts_query(f.q)
         if not match:
-            return FeedPage([], None, 0)
+            return None
         where.append("a.id IN (SELECT rowid FROM articles_fts WHERE articles_fts MATCH ?)")
         args.append(match)
     if f.outlet:
@@ -160,8 +161,33 @@ def feed(conn: sqlite3.Connection, f: FeedFilters, tz: ZoneInfo) -> FeedPage:
     if f.before:
         where.append("(a.published_at, a.id) < (?, ?)")
         args.extend(f.before)
+    return where, args
 
-    # `where` holds only the fixed clauses above; every value is a bound parameter.
+
+def latest_id(conn: sqlite3.Connection) -> int:
+    return conn.execute("SELECT coalesce(max(id), 0) FROM articles").fetchone()[0]
+
+
+def count_new(conn: sqlite3.Connection, f: FeedFilters, tz: ZoneInfo, since_id: int) -> int:
+    """Articles added after `since_id` (insertion order) that match the filters."""
+    cond = _conditions(f, tz)
+    if cond is None:
+        return 0
+    where, args = cond
+    clause = " AND ".join(["a.id > ?", *where])
+    sql = (
+        "SELECT count(*) FROM articles a JOIN outlets o ON o.id = a.outlet_id"  # noqa: S608
+        f" WHERE {clause}"
+    )
+    return conn.execute(sql, [since_id, *args]).fetchone()[0]
+
+
+def feed(conn: sqlite3.Connection, f: FeedFilters, tz: ZoneInfo) -> FeedPage:
+    cond = _conditions(f, tz)
+    if cond is None:
+        return FeedPage([], None, 0)
+    where, args = cond
+    # `where` holds only the fixed clauses from _conditions; every value is a bound parameter.
     clause = " WHERE " + " AND ".join(where) if where else ""
     sql = (
         "SELECT a.id, a.url, a.title, a.published_at, o.display_name, o.domain,"  # noqa: S608

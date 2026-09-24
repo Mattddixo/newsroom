@@ -40,7 +40,7 @@ class Settings:
     config_dir: Path = Path("/app/config")
     backup_hour: int = 3
     backup_keep: int = 14
-    ingest_interval_minutes: int = 60
+    ingest_interval_minutes: int = 15  # GDELT updates every 15 minutes
     ingest_backfill_hours: int = 72
     retention_days: int = 365
     gdelt_group_size: int = 8
@@ -85,7 +85,7 @@ def load_settings() -> Settings:
         config_dir=Path(env.get("NEWSROOM_CONFIG_DIR", "/app/config")),
         backup_hour=int(env.get("BACKUP_HOUR", "3")),
         backup_keep=int(env.get("BACKUP_KEEP", "14")),
-        ingest_interval_minutes=int(env.get("INGEST_INTERVAL_MINUTES", "60")),
+        ingest_interval_minutes=int(env.get("INGEST_INTERVAL_MINUTES", "15")),
         ingest_backfill_hours=int(env.get("INGEST_BACKFILL_HOURS", "72")),
         retention_days=int(env.get("RETENTION_DAYS", "365")),
         gdelt_group_size=int(env.get("GDELT_GROUP_SIZE", "8")),

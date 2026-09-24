@@ -27,7 +27,7 @@ Two containers from one image:
 | Service  | Role                                                                  | Network                          |
 |----------|-----------------------------------------------------------------------|----------------------------------|
 | `web`    | FastAPI, server-rendered pages. Opens SQLite **read-only**.           | `${TAILSCALE_IP}:8091` only      |
-| `worker` | Scheduler: migrations, hourly ingestion, nightly snapshot and pruning. | Outbound only, no published port |
+| `worker` | Scheduler: migrations, 15-minute ingestion, nightly snapshot and pruning. | Outbound only, no published port |
 
 All state lives under `/storage/newsroom/` (restic already backs that up):
 
@@ -99,7 +99,7 @@ for Tailscale at boot.
 | `make logs`        | Follow logs from both containers                                     |
 | `make ps`          | Container status and health                                          |
 | `make status`      | Overview: last ingestion, match counts, funding records, last backup |
-| `make ingest-now`  | Fetch new articles now (also runs hourly on its own)                 |
+| `make ingest-now`  | Fetch new articles now (also runs every 15 min on its own)           |
 | `make retag`       | Recompute tags after editing `config/tags.yaml`                      |
 | `make config-check`| Validate `config/outlets.yaml` and `config/tags.yaml`                |
 | `make outlets`     | Outlets with article counts and latest article time                  |
@@ -127,7 +127,7 @@ for Tailscale at boot.
 | `ALLOWED_HOSTS`   | `*`                | Comma-separated Host header allowlist (set when going public)|
 | `TRUSTED_PROXIES` | (empty)            | CIDRs whose `CF-Connecting-IP`/`X-Forwarded-For` is trusted (going public) |
 | `ENABLE_HSTS`     | `false`            | Only turn on once served over HTTPS                          |
-| `INGEST_INTERVAL_MINUTES` | `60`       | How often the worker ingests                                 |
+| `INGEST_INTERVAL_MINUTES` | `15`       | How often the worker ingests (GDELT updates every 15 min)    |
 | `INGEST_BACKFILL_HOURS`   | `72`       | How far back the very first run reaches                      |
 | `RETENTION_DAYS`  | `365`              | Articles older than this are deleted nightly (0 = keep forever) |
 | `GDELT_GROUP_SIZE`| `8`                | Outlets per GDELT query                                      |
@@ -150,7 +150,7 @@ make ingest-now                # new outlets are picked up on the next run anywa
 micro config/tags.yaml && make retag
 ```
 
-Once an hour the worker asks GDELT for articles from these outlets, 8 outlets per request,
+Every 15 minutes the worker asks GDELT for articles from these outlets, 8 outlets per request,
 at most one request every 6 seconds. It stores **only metadata**: title, URL, outlet, date,
 language and the GDELT image URL. The image URL is stored but never shown or fetched.
 There's no article text. Duplicates are removed by canonical URL, which ignores `www.`,
@@ -278,7 +278,7 @@ Run inside the worker: `docker compose exec worker newsroom <command>`.
 
   | Job | When |
   |---|---|
-  | Ingestion | Every 60 min, first run 30 s after start |
+  | Ingestion | Every 15 min, first run 30 s after start |
   | Ownership + funding | Every 6 h for records older than 7 days, first run 3 min after start |
   | Backup | 03:00 |
   | Retention prune | 03:30 |

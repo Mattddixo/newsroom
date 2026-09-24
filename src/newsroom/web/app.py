@@ -119,11 +119,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "owner_options": [],
             "last_ingest": None,
             "stale": False,
+            "latest_id": 0,
+            "interval": settings.ingest_interval_minutes,
         }
         with database() as conn:
             if conn is not None:
                 try:
                     context["page"] = queries.feed(conn, filters, tz)
+                    context["latest_id"] = queries.latest_id(conn)
                     context["options"] = queries.filter_options(conn)
                     graph = Graph.load(conn)
                     context["graph"] = graph
@@ -143,7 +146,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/about", response_class=HTMLResponse)
     def about(request: Request) -> Response:
-        return templates.TemplateResponse(request, "about.html", {})
+        return templates.TemplateResponse(
+            request, "about.html", {"interval": settings.ingest_interval_minutes}
+        )
+
+    @app.get("/fragments/new", response_class=HTMLResponse)
+    def new_articles(request: Request) -> Response:
+        """Polled by the feed: how many articles arrived since the page was loaded."""
+        params = dict(request.query_params)
+        since = params.pop("since", "")
+        filters = queries.FeedFilters.parse(params)
+        count = 0
+        if since.isdigit() and len(since) <= 12 and not filters.q:
+            with database() as conn:
+                if conn is not None:
+                    count = queries.count_new(conn, filters, tz, int(since))
+        return templates.TemplateResponse(
+            request, "_new_articles.html", {"count": count, "filters": filters}
+        )
 
     @app.get("/outlets", response_class=HTMLResponse)
     def outlets_page(request: Request) -> Response:

@@ -1,0 +1,1 @@
+{% if count %}<a class="new-link" href="/{% if filters.params() %}?{{ filters.params() | qs }}{% endif %}">{{ count }} new article{{ "s" if count != 1 }} · Show</a>{% endif %}

@@ -117,7 +117,7 @@ Then set `ENABLE_HSTS=true` and `docker compose up -d` again.
 - **Security → WAF → Rate limiting rules**: a coarse edge limit (e.g. 300 requests/minute per IP)
   in front of the app's own per-IP limits.
 - **Caching**: a cache rule for `/static/*` and `/logos/*` is safe; do not cache `/` or
-  `/fragments/*` (content changes hourly).
+  `/fragments/*` (content changes every 15 minutes).
 - Optionally **Bot Fight Mode**.
 
 ## Rolling back
