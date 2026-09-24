@@ -119,6 +119,8 @@ def test_saturated_window_is_split() -> None:
     assert windows[1] == ("20260922120000", "20260923030000")
     assert windows[2] == ("20260923030000", "20260923180000")
     assert [len(r.records) for r in results] == [3, 3]
+    # oldest half first; each result says how far the group is now covered
+    assert [r.window_end for r in results] == [START + (END - START) / 2, END]
 
 
 def test_rate_limit_text_triggers_backoff_then_succeeds() -> None:
@@ -146,6 +148,7 @@ def test_persistent_failure_is_reported_not_raised() -> None:
     assert len(results) == 1
     assert results[0].error and "HTTP 503" in results[0].error
     assert sleeps == [10.0, 20.0, 40.0]  # exponential backoff, 4 attempts
+    assert not results[0].throttled and results[0].window_end is None
 
 
 def test_error_body_is_reported() -> None:
@@ -207,5 +210,6 @@ def test_repeated_429_keeps_slowing_down() -> None:
     client = client_for(lambda r: httpx.Response(429), sleeps)
     results = list(GdeltSource(client).fetch(["cbc.ca"], START, END))
     assert results[0].error and "429" in results[0].error
+    assert results[0].throttled  # ingestion stops the run instead of trying other groups
     assert [s for s in sleeps if s in (30.0, 60.0, 120.0)] == [30.0, 60.0, 120.0]
     assert client.min_interval == 60.0  # 10 -> 20 -> 40 -> capped at 60

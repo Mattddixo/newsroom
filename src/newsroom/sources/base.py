@@ -26,6 +26,9 @@ class QueryResult:
     source_url: str
     records: list[ArticleRecord] = field(default_factory=list)
     error: str | None = None
+    # Everything up to here is now in, for this group (sources fetch oldest-first).
+    window_end: datetime | None = None
+    throttled: bool = False  # the API kept refusing: stop the run, try again next time
 
 
 class ArticleSource(Protocol):
@@ -38,5 +41,6 @@ class ArticleSource(Protocol):
     def fetch(
         self, domains: Sequence[str], start: datetime, end: datetime
     ) -> Iterator[QueryResult]:
-        """Yield results for articles from `domains` first seen in [start, end)."""
+        """Yield results for articles from `domains` first seen in [start, end), oldest
+        time slice first. Ingestion stops a group at its first error."""
         ...

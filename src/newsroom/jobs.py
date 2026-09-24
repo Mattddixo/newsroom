@@ -48,6 +48,7 @@ def ingest_articles(settings: Settings, *, wait: float = 0) -> ingest.RunSummary
                 source,
                 tagger,
                 backfill=timedelta(hours=settings.ingest_backfill_hours),
+                catch_up=timedelta(hours=settings.ingest_catchup_hours),
             )
             return summary
         finally:

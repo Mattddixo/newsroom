@@ -26,6 +26,10 @@ class RateLimited(ApiError):
     """Raised by callers when a 200 response is actually a rate-limit message."""
 
 
+class Throttled(ApiError):
+    """Gave up because the server kept saying 'too many requests'."""
+
+
 class ApiClient:
     def __init__(
         self,
@@ -135,4 +139,5 @@ class ApiClient:
                     },
                 )
                 self._sleep(delay)
-        raise ApiError(f"giving up after {self.max_retries + 1} attempts: {last_error}")
+        error = Throttled if throttled else ApiError
+        raise error(f"giving up after {self.max_retries + 1} attempts: {last_error}")

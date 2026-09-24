@@ -130,7 +130,8 @@ for Tailscale at boot.
 | `ENABLE_HSTS`     | `false`            | Only turn on once served over HTTPS                          |
 | `INGEST_INTERVAL_MINUTES` | `15`       | How often the worker ingests (GDELT updates every 15 min)    |
 | `INGEST_OFFSET_MINUTES` | `3`          | Minutes after each GDELT update to run (→ :03, :18, :33, :48) |
-| `INGEST_BACKFILL_HOURS`   | `48`       | How far back ingestion ever reaches (first run, and catch-up after downtime) |
+| `INGEST_BACKFILL_HOURS`   | `48`       | How far back a new outlet's first fetch reaches              |
+| `INGEST_CATCHUP_HOURS`    | `6`        | After downtime or errors, how far back an outlet resumes (older gaps are skipped) |
 | `RETENTION_DAYS`  | `365`              | Articles older than this are deleted nightly (0 = keep forever) |
 | `FEED_OUTLET_CAP` | `3`                | Balanced feed: most articles shown per outlet per hour ("Show: Everything" shows all) |
 | `GDELT_GROUP_SIZE`| `8`                | Outlets per GDELT query                                      |

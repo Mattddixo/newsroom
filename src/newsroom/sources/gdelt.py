@@ -3,7 +3,8 @@
 Free, no key. Notes that shape this adapter:
 - Every call needs a query and returns at most 250 articles, so outlets are
   queried in small OR-groups and a saturated time window is split in half.
-- GDELT asks for no more than one request every 5 seconds; we pace at 6.
+- GDELT asks for no more than one request every 5 seconds; we pace at 10 (it still
+  throttles at 6).
 - Errors and rate-limit notices arrive as HTTP 200 with a plain-text body.
 - "seendate" is when GDELT first saw the article (usually minutes after publication).
 """
@@ -21,7 +22,7 @@ from urllib.parse import urlencode
 
 import httpx
 
-from newsroom.net.http import ApiClient, ApiError, RateLimited
+from newsroom.net.http import ApiClient, ApiError, RateLimited, Throttled
 from newsroom.sources.base import ArticleRecord, QueryResult
 from newsroom.urls import host_matches, host_of, is_http_url
 
@@ -161,7 +162,7 @@ class GdeltSource:
             records, raw_count = parse_articles(body, group)
         except ApiError as exc:
             log.warning("gdelt query failed", extra={"domains": list(group), "error": str(exc)})
-            yield QueryResult(source_url=url, error=str(exc))
+            yield QueryResult(source_url=url, error=str(exc), throttled=isinstance(exc, Throttled))
             return
         if raw_count >= MAX_RECORDS and end - start > MIN_SPLIT and depth < 8:
             mid = start + (end - start) / 2
@@ -173,4 +174,4 @@ class GdeltSource:
                 "gdelt window still saturated; some articles may be missed",
                 extra={"domains": list(group), "start": start.isoformat()},
             )
-        yield QueryResult(source_url=url, records=records)
+        yield QueryResult(source_url=url, records=records, window_end=end)

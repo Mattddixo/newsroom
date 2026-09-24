@@ -359,7 +359,7 @@ def cmd_status(_: argparse.Namespace) -> int:
         else:
             print(
                 f"  last run:        {run['status']} at {run['finished_at']},"
-                f" {run['inserted']} new, {run['query_errors']} failed queries"
+                f" {run['inserted']} new, {run['query_errors']} of {run['queries']} requests failed"
             )
     print(f"  last full run:   {ok or 'never'}")
     print(f"  articles:        {arts[0]} (newest {arts[1] or '-'})")

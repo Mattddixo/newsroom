@@ -1,9 +1,11 @@
 """Article ingestion: idempotent, resumable, one transaction per API query.
 
-Window: from the end of the last fully successful run (minus an overlap, since
-GDELT indexes with a delay) to now. A partial or failed run does not advance the
-cursor, so the next run re-covers the same window; dedup on the canonical URL
-makes that harmless. A crash leaves only whole, committed queries behind.
+Each outlet has a cursor: everything up to it is in. A run fetches each group of
+outlets from its cursor (minus an overlap, since GDELT indexes with a delay) to now,
+oldest slice first, and moves the cursor forward after every successful slice. At
+the first error the group stops and the next run carries on from there; dedup on
+the canonical URL makes any re-fetch harmless. When the API keeps refusing, the run
+stops early rather than hammer it. A crash leaves only whole, committed queries behind.
 """
 
 from __future__ import annotations
@@ -135,10 +137,11 @@ def group_start(
     *,
     backfill: timedelta,
     overlap: timedelta,
-    max_window: timedelta,
+    catch_up: timedelta,
 ) -> datetime:
     """Where a group's window begins: its least-advanced outlet's cursor, minus overlap
-    (GDELT indexes with a delay), never further back than `max_window`."""
+    (GDELT indexes with a delay). An outlet that fell behind resumes at most `catch_up`
+    ago (keeping up beats filling old gaps); a new outlet starts `backfill` ago."""
     marks = ",".join("?" * len(domains))
     cursors = dict(
         conn.execute(
@@ -147,9 +150,12 @@ def group_start(
             [source, *domains],
         ).fetchall()
     )
-    fallback = _fallback_start(conn, source, now, backfill, overlap)
-    starts = [parse_ts(cursors[d]) - overlap if d in cursors else fallback for d in domains]
-    return max(min(starts), now - max_window)
+    fallback = max(_fallback_start(conn, source, now, backfill, overlap), now - backfill)
+    starts = [
+        max(parse_ts(cursors[d]) - overlap, now - catch_up) if d in cursors else fallback
+        for d in domains
+    ]
+    return min(starts)
 
 
 def _advance(conn: sqlite3.Connection, source: str, domains: Sequence[str], end: datetime) -> None:
@@ -170,13 +176,12 @@ def run_ingest(
     now: datetime | None = None,
     backfill: timedelta = timedelta(hours=48),
     overlap: timedelta = timedelta(hours=1),
-    max_window: timedelta | None = None,
+    catch_up: timedelta | None = None,
 ) -> RunSummary:
-    """`backfill`: how far back an outlet's first fetch reaches. `max_window`: how far back
-    a lagging outlet may catch up (defaults to `backfill`, so ingestion never reaches
-    further back than the first run did)."""
+    """`backfill`: how far back an outlet's first fetch reaches. `catch_up`: how far back
+    an outlet that fell behind may resume (defaults to `backfill`)."""
     now = (now or datetime.now(UTC)).replace(microsecond=0)
-    max_window = max_window or backfill
+    catch_up = min(catch_up or backfill, backfill)
     # A previous process that died mid-run leaves a 'running' row; close it out.
     conn.execute(
         "UPDATE ingest_runs SET status = 'failed', error = 'interrupted' "
@@ -190,10 +195,12 @@ def run_ingest(
     groups = source.groups(list(outlets))
     starts = [
         group_start(
-            conn, source.name, g, now, backfill=backfill, overlap=overlap, max_window=max_window
+            conn, source.name, g, now, backfill=backfill, overlap=overlap, catch_up=catch_up
         )
         for g in groups
     ]
+    # Most-behind groups first, so a run cut short by throttling helps those most.
+    order = sorted(zip(starts, groups, strict=True), key=lambda sg: sg[0])
     start = min(starts, default=now)
     cur = conn.execute(
         "INSERT INTO ingest_runs (source, started_at, window_start, window_end, status)"
@@ -212,20 +219,30 @@ def run_ingest(
         },
     )
     error: str | None = None
+    throttled = False
     try:
-        for group, group_from in zip(groups, starts, strict=True):
+        for group_from, group in order:
             group_ok = True
             for result in source.fetch(group, group_from, now):
                 summary.queries += 1
                 if result.error:
                     summary.query_errors += 1
                     group_ok = False
+                    throttled = result.throttled
                     _progress(conn, summary)
-                    continue
+                    break  # the next run resumes this group from its last good slice
                 _store(conn, source.name, result, outlets, tagger, ids, summary)
+                if result.window_end:
+                    _advance(conn, source.name, group, result.window_end)
             if group_ok:
                 # Everything up to `now` is in for these outlets; the next run starts here.
                 _advance(conn, source.name, group, now)
+            if throttled:
+                log.warning(
+                    "source keeps refusing requests; stopping this run early",
+                    extra={"source": source.name},
+                )
+                break
     except Exception as exc:  # unexpected: record it, keep committed batches
         error = f"{type(exc).__name__}: {exc}"
         log.exception("ingest aborted")

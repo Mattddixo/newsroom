@@ -274,7 +274,9 @@ def test_progress_is_recorded_while_running(conn: sqlite3.Connection) -> None:
             )
 
     run_ingest(conn, Watching(), Tagger(TAGS), now=NOW)
-    assert seen == [(1, 0, 1), (2, 1, 1)]
+    assert seen == [(1, 0, 1)]  # the group stops at its error, so the generator isn't resumed
+    final = conn.execute("SELECT queries, query_errors, inserted FROM ingest_runs").fetchone()
+    assert tuple(final) == (2, 1, 1)
 
 
 class PerGroupSource(FakeSource):
@@ -328,3 +330,84 @@ def test_first_run_uses_backfill_then_cursors(conn: sqlite3.Connection) -> None:
     # still owed its backfill (measured from this run)
     assert second.starts["cbc.ca"] == NOW + timedelta(hours=1) - timedelta(hours=72)
     assert second.starts["nytimes.com"] == NOW - timedelta(hours=1)  # cursor minus overlap
+
+
+class SlicedSource(FakeSource):
+    """Two groups (one outlet each), each fetched as three hour-long slices, oldest first.
+    `fail` maps a domain to the slice index that errors; `throttle` makes that error a
+    'keeps refusing' one."""
+
+    def __init__(self, fail: dict[str, int] | None = None, throttle: bool = False) -> None:
+        super().__init__(group_size=1)
+        self.fail = fail or {}
+        self.throttle = throttle
+        self.requests: list[tuple[str, int]] = []
+
+    def fetch(self, domains, start, end):  # type: ignore[no-untyped-def]
+        [domain] = domains
+        step = (end - start) / 3
+        for i in range(3):
+            self.requests.append((domain, i))
+            if self.fail.get(domain) == i:
+                yield QueryResult("x", error="HTTP 429", throttled=self.throttle)
+            else:
+                yield QueryResult("ok", [], window_end=start + step * (i + 1))
+
+
+def cursors(conn: sqlite3.Connection) -> dict[str, str]:
+    return dict(conn.execute("SELECT domain, window_end FROM ingest_cursors").fetchall())
+
+
+def test_progress_is_kept_slice_by_slice(conn: sqlite3.Connection) -> None:
+    source = SlicedSource(fail={"cbc.ca": 2})
+    s = run_ingest(
+        conn, source, Tagger(TAGS), now=NOW, backfill=timedelta(hours=3), overlap=timedelta(0)
+    )
+    assert s.status == "partial"
+    # cbc.ca keeps its first two slices; the others finished
+    assert cursors(conn)["cbc.ca"] == "2026-09-24T11:00:00Z"
+    assert cursors(conn)["nytimes.com"] == "2026-09-24T12:00:00Z"
+
+
+def test_a_group_stops_at_its_first_error(conn: sqlite3.Connection) -> None:
+    source = SlicedSource(fail={"cbc.ca": 0})
+    run_ingest(conn, source, Tagger(TAGS), now=NOW, backfill=timedelta(hours=3))
+    assert [r for r in source.requests if r[0] == "cbc.ca"] == [("cbc.ca", 0)]
+    assert [r for r in source.requests if r[0] == "nytimes.com"] == [
+        ("nytimes.com", 0),
+        ("nytimes.com", 1),
+        ("nytimes.com", 2),
+    ]
+
+
+def test_run_stops_when_the_source_keeps_refusing(conn: sqlite3.Connection) -> None:
+    source = SlicedSource(fail={"cbc.ca": 1}, throttle=True)
+    s = run_ingest(conn, source, Tagger(TAGS), now=NOW, backfill=timedelta(hours=3))
+    assert s.status == "partial"
+    assert source.requests == [("cbc.ca", 0), ("cbc.ca", 1)]  # nothing after the refusal
+    assert "nytimes.com" not in cursors(conn)
+
+
+def test_most_behind_group_goes_first(conn: sqlite3.Connection) -> None:
+    run_ingest(conn, SlicedSource(), Tagger(TAGS), now=NOW, overlap=timedelta(0))
+    later = NOW + timedelta(hours=1)
+    run_ingest(conn, SlicedSource(fail={"nytimes.com": 0}), Tagger(TAGS), now=later)
+    source = PerGroupSource()
+    run_ingest(conn, source, Tagger(TAGS), now=later + timedelta(minutes=15))
+    assert next(iter(source.starts)) == "nytimes.com"  # furthest behind, so fetched first
+
+
+def test_catch_up_is_limited_but_new_outlets_get_backfill(conn: sqlite3.Connection) -> None:
+    run_ingest(conn, PerGroupSource(failing={"cbc.ca"}), Tagger(TAGS), now=NOW)
+    source = PerGroupSource()
+    later = NOW + timedelta(hours=30)
+    run_ingest(
+        conn,
+        source,
+        Tagger(TAGS),
+        now=later,
+        backfill=timedelta(hours=48),
+        catch_up=timedelta(hours=6),
+    )
+    assert source.starts["nytimes.com"] == later - timedelta(hours=6)  # not 30 h back
+    assert source.starts["cbc.ca"] == later - timedelta(hours=48)  # never fetched: backfill

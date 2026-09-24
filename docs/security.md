@@ -151,7 +151,7 @@ Each requirement from the project brief, where it's implemented, and how it's ve
 | Logging | JSON, no access log, no IPs, no secrets, Docker rotation 5 × 10 MB | Review; container logs |
 | No tracking | No cookies, analytics or third-party assets; `Referrer-Policy: no-referrer`; outbound links use `noopener noreferrer` | Tests; the axe/browser audit made no third-party requests |
 | `/healthz` | Plain 200 `ok`, exempt from rate limits | Tests; container healthcheck |
-| Idempotent, resumable ingestion | One transaction per query, cursor advances only on a fully OK run, file lock, crash-recovery tests | `test_ingest.py` |
+| Idempotent, resumable ingestion | One transaction per query, per-outlet cursors advance only over fully fetched time slices, file lock, crash-recovery tests | `test_ingest.py` |
 | Consistent backups | SQLite online backup API, integrity check, atomic rename, pruning | `test_db_ops.py`; `newsroom backup` in Docker |
 | Accessibility | Semantic HTML, skip link, visible focus, `aria-current`, `lang` on non-English headlines, table headers, contrast | axe-core (WCAG 2.1 A/AA + best practice): 0 violations on all pages, light and dark; keyboard-only walkthrough |
 
