@@ -105,6 +105,14 @@ curl -m 3 http://<TAILSCALE-IP>:8081/healthz # from a tailnet device: prints "ok
   - timeout, size cap and content-type allowlist; SVG is excluded
 - Logging: JSON to stdout, with no access log and no visitor IPs. Secrets are never logged.
   There is no analytics or tracking.
+- Client IP for rate limiting: forwarding headers (`CF-Connecting-IP`, `X-Forwarded-For`) are
+  believed only from addresses in `TRUSTED_PROXIES`, which is empty by default. Anyone else is
+  keyed by their own address, so a spoofed header can't dodge limits or burn someone else's.
+- Templates use Jinja `StrictUndefined`: a missing variable is an error, never a silent blank
+  that could turn into a false "Not publicly disclosed".
+- Outbound API calls (GDELT, Wikidata, SEC, ProPublica) go only to fixed hosts, send a
+  User-Agent with contact details, are paced, and back off on 429/5xx/`maxlag`. Anything
+  fetched from a URL that came from external data (logos) goes through `safe_fetch`.
 
 ## Dev workflow checks
 
@@ -114,3 +122,44 @@ make audit   # pip-audit against the hashed, locked requirements
 ```
 
 Run both before deploying and after `uv lock --upgrade`.
+
+
+## Checklist
+
+Each requirement from the project brief, where it's implemented, and how it's verified.
+"Verified in Docker" means it was checked against the built image running under
+`compose.yaml` (read-only root, non-root user, capabilities dropped).
+
+| Requirement | Implementation | Verified |
+|---|---|---|
+| Read-only from the browser | `ReadOnlyMethodsMiddleware` (GET/HEAD only); DB opened `mode=ro` + `query_only`; no forms that write; no accounts | Tests (`test_write_methods_rejected`); in Docker, a write through the web process's DB connection fails with "readonly database" |
+| Port on Tailscale only | `${TAILSCALE_IP}:8081:8000`; Compose refuses an empty value | `docker inspect` shows a single HostIp binding; `make verify` on the host |
+| UFW rules | This document, sections 2–3 (including the DOCKER-USER caveat) | On the host |
+| Non-root | UID/GID 10001 in the image and in `compose.yaml` | In Docker: `id` shows `uid=10001` |
+| Read-only rootfs | `read_only: true`; tmpfs `/tmp` (noexec); bind mounts only under `/storage/newsroom` | In Docker: writing to `/app` fails, `/tmp` works, `logos` is read-only for `web` |
+| `cap_drop: [ALL]`, `no-new-privileges` | `compose.yaml` | In Docker: `CapEff: 0`, `NoNewPrivs: 1` |
+| Resource limits, healthchecks, restart | `deploy.resources.limits` (CPU, memory, pids), healthchecks for both services, `restart: unless-stopped` | In Docker: both services `healthy`; limits shown by `docker inspect` |
+| Base image pinned by digest | `Dockerfile` ARGs (python, uv); cloudflared in `going-public.md` | Review |
+| Secrets only in `.env` | `.env` gitignored and dockerignored; `make init` writes it with mode 600; `.env.example` committed | Review |
+| Strict CSP, no inline scripts | `SecurityHeadersMiddleware`; htmx served locally and configured by meta tag (no eval, no inline styles) | Tests; browser console shows no CSP errors on any page |
+| nosniff, Referrer-Policy, frame-ancestors, Permissions-Policy | `SecurityHeadersMiddleware` on every response, including static files and errors | Tests; `curl -I` against the container |
+| HSTS only behind HTTPS | `ENABLE_HSTS` (default off) | Tests |
+| External data untrusted | Jinja autoescape; URLs checked to be http(s) at ingest and by a DB CHECK constraint; titles cleaned of control characters; no remote HTML rendered; all SQL parameterised | Tests (`test_article_links_are_safe`, `test_bad_url_rejected_by_schema`, autoescape) |
+| SSRF guard | `net/safe_fetch.py`: allowlist, public-IP-only DNS with IP pinning, redirect re-checks, size/time/type caps; used for logos | 30+ tests in `test_safe_fetch.py` |
+| Rate limiting | slowapi per client IP on all routes except `/healthz`; separate search limit; trusted-proxy aware | Tests; in Docker, through a simulated tunnel network: per-visitor buckets, spoofed headers ignored |
+| `pip-audit` + ruff in workflow | `make test` (ruff + pytest) and `make audit` Docker stages; README "Development" | `make audit`: no known vulnerabilities at the time of writing |
+| Logging | JSON, no access log, no IPs, no secrets, Docker rotation 5 × 10 MB | Review; container logs |
+| No tracking | No cookies, analytics or third-party assets; `Referrer-Policy: no-referrer`; outbound links use `noopener noreferrer` | Tests; the axe/browser audit made no third-party requests |
+| `/healthz` | Plain 200 `ok`, exempt from rate limits | Tests; container healthcheck |
+| Idempotent, resumable ingestion | One transaction per query, cursor advances only on a fully OK run, file lock, crash-recovery tests | `test_ingest.py` |
+| Consistent backups | SQLite online backup API, integrity check, atomic rename, pruning | `test_db_ops.py`; `newsroom backup` in Docker |
+| Accessibility | Semantic HTML, skip link, visible focus, `aria-current`, `lang` on non-English headlines, table headers, contrast | axe-core (WCAG 2.1 A/AA + best practice): 0 violations on all pages, light and dark; keyboard-only walkthrough |
+
+### Known limits
+
+- **UFW and Docker:** UFW rules don't filter Docker-published ports unless you add the
+  DOCKER-USER rule in section 3. The bind address is the real control.
+- **Rate-limit state:** limits are kept in memory per `web` process, so they reset on restart.
+  For a public site, also set the Cloudflare rate-limiting rule in `going-public.md`.
+- **Egress:** the worker's outbound traffic isn't restricted at the network level. Only
+  fixed API hosts are contacted in code, plus Commons for logos via the allowlisted fetcher.

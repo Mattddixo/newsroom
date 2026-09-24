@@ -88,8 +88,11 @@ def test_untrusted_host_rejected(tmp_path: Path) -> None:
 
 def test_templates_autoescape(client: TestClient) -> None:
     templates = client.app.state.templates  # type: ignore[attr-defined]
+    from types import SimpleNamespace
+
+    request = SimpleNamespace(url=SimpleNamespace(path="/"))
     rendered = templates.get_template("error.html").render(
-        status=400, message="<script>alert(1)</script>", request=None
+        status=400, message="<script>alert(1)</script>", request=request
     )
     assert "<script>alert(1)</script>" not in rendered
     assert "&lt;script&gt;" in rendered
@@ -99,3 +102,31 @@ def test_templates_fail_loudly_on_missing_variables(client: TestClient) -> None:
     from jinja2 import StrictUndefined
 
     assert client.app.state.templates.env.undefined is StrictUndefined  # type: ignore[attr-defined]
+
+
+def test_robots(client: TestClient) -> None:
+    assert "Disallow: /fragments/" in client.get("/robots.txt").text
+
+
+def test_nav_marks_current_page(client: TestClient) -> None:
+    assert '<a href="/about" aria-current="page">About</a>' in client.get("/about").text
+
+
+def test_forwarded_ip_only_trusted_from_configured_proxy(tmp_path: Path) -> None:
+    from starlette.requests import Request
+
+    from newsroom.web.security import client_ip_resolver
+
+    def req(peer: str, headers: dict[str, str]) -> Request:
+        raw = [(k.lower().encode(), v.encode()) for k, v in headers.items()]
+        return Request({"type": "http", "client": (peer, 1234), "headers": raw})
+
+    resolve = client_ip_resolver(["172.30.0.0/16"])
+    spoof = {"cf-connecting-ip": "203.0.113.9", "x-forwarded-for": "198.51.100.1"}
+    assert resolve(req("100.64.1.2", spoof)) == "100.64.1.2"  # not a proxy: header ignored
+    assert resolve(req("172.30.0.5", spoof)) == "203.0.113.9"  # proxy: CF header wins
+    assert resolve(req("172.30.0.5", {"x-forwarded-for": "198.51.100.1, 10.0.0.1"})) == (
+        "198.51.100.1"
+    )
+    assert resolve(req("172.30.0.5", {"cf-connecting-ip": "not-an-ip"})) == "172.30.0.5"
+    assert client_ip_resolver([])(req("172.30.0.5", spoof)) == "172.30.0.5"

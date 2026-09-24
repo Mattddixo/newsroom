@@ -1,26 +1,66 @@
 {% extends "base.html" %}
 {% block title %}About · newsroom{% endblock %}
 {% block content %}
+<article class="prose">
 <h1>About</h1>
-<p>This site lists news articles and shows who owns each outlet. Every ownership claim links to the public record it comes from. Nothing is inferred, estimated or rated.</p>
+<p>This site lists news headlines from a fixed set of outlets and shows, for each outlet, who owns it and, where a public record exists, how it is funded. Every ownership or funding statement links to the record it comes from. Nothing is inferred, estimated, rated or scored.</p>
 
-<h2 id="not-disclosed">"Not publicly disclosed"</h2>
-<p>None of the public sources this site uses has a record for this. For ownership, it means the outlet could not be matched to a Wikidata item. For funding, it means no filing, registry entry or published figure was found for the outlet or its owners. It is a statement about the records, not a claim about the outlet.</p>
+<nav aria-label="On this page" class="toc">
+  <ul>
+    <li><a href="#terms">What the labels mean</a></li>
+    <li><a href="#articles">Articles</a></li>
+    <li><a href="#ownership">Ownership</a></li>
+    <li><a href="#funding">Funding</a></li>
+    <li><a href="#not-included">What this site does not do</a></li>
+    <li><a href="#sources">Sources and attribution</a></li>
+  </ul>
+</nav>
 
-<h2 id="no-owner-recorded">"No owner recorded"</h2>
-<p>The outlet has a Wikidata item, but that item states no current "owned by" (P127) or "parent organization" (P749). This is common for independent nonprofits and for organizations that are not owned by another entity; it may also mean the record is incomplete.</p>
+<h2 id="terms">What the labels mean</h2>
+<dl>
+  <dt id="not-disclosed">Not publicly disclosed</dt>
+  <dd>None of the public sources this site uses has a record for this. For ownership, the outlet could not be matched to a Wikidata item. For funding, no filing, registry entry or published figure was found for the outlet or any of its owners. It is a statement about the records available here, not a claim about the outlet.</dd>
+  <dt id="no-owner-recorded">No owner recorded</dt>
+  <dd>The outlet has a Wikidata item, but that item states no current "owned by" (P127) or "parent organization" (P749). This is common for independent nonprofits and for organizations no other entity owns. It can also mean the record is incomplete.</dd>
+  <dt>Owned by / Parent organization</dt>
+  <dd>Shown exactly as Wikidata records them: "owned by" (P127) and "parent organization" (P749) are different statements and are labelled separately. A percentage appears only when Wikidata states the share (P1107).</dd>
+  <dt>Ultimately</dt>
+  <dd>The top of the recorded chain: the entity or entities above the outlet for which no further owner is recorded.</dd>
+</dl>
 
-<h2>How ownership is found</h2>
-<p>Each outlet's web domain is matched to a Wikidata item through its "official website" (P856). The site then follows "owned by" and "parent organization" upward, using only statements Wikidata marks as current: deprecated statements and statements with a past end date are ignored. Matches are checked by hand where needed, and records are refreshed weekly.</p>
+<h2 id="articles">Articles</h2>
+<p>Headlines come from the GDELT Project's DOC 2.0 API, queried once an hour for each outlet on the list. Only metadata is kept: headline, link, outlet, language and date. No article text is stored. Links go to the original outlet. The date shown is when GDELT first saw the article, usually minutes after publication; times are in {{ request.app.state.settings.timezone }}. The same article under slightly different links (tracking parameters, "www.", trailing slashes) is shown once. Topic tags come from a published keyword list matched against headlines, not from any judgement about content.</p>
 
-<h2>Sources</h2>
+<h2 id="ownership">Ownership</h2>
+<p>Each outlet's web domain is matched to a Wikidata item through that item's "official website" (P856). If several items claim the same website, or none does, the match is made by hand; the outlet page says how each match was made. From the outlet's item, the site follows "owned by" and "parent organization" upward, up to ten levels. Only statements Wikidata marks as current are used: deprecated statements, statements with an end date in the past, and "unknown value" statements are ignored; where Wikidata marks one statement as preferred, it is used over the others. If the records loop back on themselves, the loop is shown and not followed. Ownership is re-checked weekly. Occasionally a link missing from Wikidata is added by hand; it is labelled "added manually" and links to its own public source.</p>
+
+<h2 id="funding">Funding</h2>
+<p>Funding records are attached to the outlet or to any owner above it, and are shown only where a public record exists:</p>
 <ul>
-  <li>Articles: <a href="https://www.gdeltproject.org/" target="_blank" rel="noopener noreferrer">The GDELT Project</a> (DOC 2.0 API). Headlines and links only; dates are when GDELT first saw each article.</li>
-  <li>Ownership: <a href="https://www.wikidata.org/" target="_blank" rel="noopener noreferrer">Wikidata</a>, available under CC0. Credited with thanks to its contributors.</li>
-  <li>Funding, public companies: <a href="https://www.sec.gov/edgar" target="_blank" rel="noopener noreferrer">SEC EDGAR</a>. Links to filings only; figures are not extracted.</li>
-  <li>Funding, US nonprofits: <a href="https://projects.propublica.org/nonprofits/" target="_blank" rel="noopener noreferrer">ProPublica Nonprofit Explorer</a>, from IRS Form 990 data.</li>
-  <li>Funding, Canadian registered charities: <a href="https://www.canada.ca/en/revenue-agency/services/charities-giving/list-charities.html" target="_blank" rel="noopener noreferrer">Canada Revenue Agency</a> charity listings.</li>
-  <li>Funding, public broadcasters: figures copied from their annual reports or government budget documents, each linked.</li>
-  <li>Logos: <a href="https://commons.wikimedia.org/" target="_blank" rel="noopener noreferrer">Wikimedia Commons</a>. Each outlet page links to the file and its licence.</li>
+  <li><strong>Public companies</strong>: links to the latest annual report (Form 10-K, 20-F or 40-F) and the full filing index on SEC EDGAR. Figures are not extracted from filings; a company's revenue is not the same thing as funding.</li>
+  <li><strong>US nonprofits</strong>: total revenue and "contributions, gifts and grants" for the last three tax years, as reported on IRS Form 990, via ProPublica's Nonprofit Explorer.</li>
+  <li><strong>Canadian registered charities</strong>: a link to the charity's listing with the Canada Revenue Agency, which publishes its annual T3010 returns.</li>
+  <li><strong>Public broadcasters and other published figures</strong>: copied as stated from an annual report or government document, each with a link and the date it was checked.</li>
 </ul>
+<p>Anything else is shown as "Not publicly disclosed".</p>
+
+<h2 id="not-included">What this site does not do</h2>
+<ul>
+  <li>No bias, reliability or "trust" ratings, and no sentiment or other scores.</li>
+  <li>No commentary on outlets, owners or articles.</li>
+  <li>No accounts, no tracking, no analytics, no cookies, and no third-party requests from your browser.</li>
+  <li>No article text or article images are stored or shown.</li>
+</ul>
+
+<h2 id="sources">Sources and attribution</h2>
+<ul>
+  <li><a href="https://www.gdeltproject.org/" target="_blank" rel="noopener noreferrer">The GDELT Project</a>: article metadata (DOC 2.0 API).</li>
+  <li><a href="https://www.wikidata.org/" target="_blank" rel="noopener noreferrer">Wikidata</a>: ownership data, available under <a href="https://creativecommons.org/publicdomain/zero/1.0/" target="_blank" rel="noopener noreferrer">CC0</a>. Credited with thanks to its contributors.</li>
+  <li><a href="https://commons.wikimedia.org/" target="_blank" rel="noopener noreferrer">Wikimedia Commons</a>: outlet logos; each outlet page links to the file and its licence.</li>
+  <li><a href="https://www.sec.gov/edgar" target="_blank" rel="noopener noreferrer">U.S. Securities and Exchange Commission, EDGAR</a>: filings of public companies.</li>
+  <li><a href="https://projects.propublica.org/nonprofits/" target="_blank" rel="noopener noreferrer">ProPublica Nonprofit Explorer</a>: US nonprofit financial data from IRS Form 990 filings.</li>
+  <li><a href="https://www.canada.ca/en/revenue-agency/services/charities-giving/list-charities.html" target="_blank" rel="noopener noreferrer">Canada Revenue Agency, List of charities</a>: contains information licensed under the <a href="https://open.canada.ca/en/open-government-licence-canada" target="_blank" rel="noopener noreferrer">Open Government Licence – Canada</a>.</li>
+  <li><a href="https://htmx.org/" target="_blank" rel="noopener noreferrer">htmx</a> (BSD 2-Clause), served from this site.</li>
+</ul>
+</article>
 {% endblock %}

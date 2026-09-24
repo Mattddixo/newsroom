@@ -1,6 +1,6 @@
 {% from "_macros.html" import ownership_text %}
 <li class="article">
-  <a class="title" href="{{ a.url }}" target="_blank" rel="noopener noreferrer">{{ a.title }}</a>
+  <a class="title" href="{{ a.url }}" target="_blank" rel="noopener noreferrer" aria-describedby="new-tab"{% if a.language and a.language != "en" %} lang="{{ a.language }}"{% endif %}>{{ a.title }}</a>
   <div class="meta">
     <a class="outlet" href="/outlet/{{ a.outlet_domain }}">
       {%- if a.logo_path %}<img class="logo" src="/logos/{{ a.logo_path }}" alt="" width="16" height="16" loading="lazy">{% endif -%}

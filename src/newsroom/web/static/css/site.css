@@ -93,6 +93,12 @@ summary:focus-visible {
   letter-spacing: -0.01em;
 }
 
+.site-header [aria-current="page"] {
+  color: var(--fg);
+  font-weight: 600;
+  text-decoration: none;
+}
+
 .site-header ul {
   display: flex;
   gap: 1rem;
@@ -411,10 +417,41 @@ table.data .num {
   color: var(--muted);
 }
 
-h4.funding-h {
+.own-panel .funding-h {
   font-size: 0.8rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--muted);
   margin: 0.75rem 0 0.2rem;
+}
+
+/* ---- prose (About) ---- */
+.prose {
+  max-width: 44rem;
+}
+
+.prose dt {
+  font-weight: 600;
+  margin-top: 0.75rem;
+}
+
+.prose dd {
+  margin: 0.2rem 0 0;
+}
+
+.prose li {
+  margin: 0.3rem 0;
+}
+
+.toc ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  padding: 0;
+  list-style: none;
+  font-size: 0.9rem;
+}
+
+:target {
+  scroll-margin-top: 1rem;
 }

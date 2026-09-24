@@ -2,7 +2,7 @@
 COMPOSE := docker compose
 
 .DEFAULT_GOAL := help
-.PHONY: help init up down restart logs ps shell ingest-now retag config-check outlets unmatched ownership funding backup-db migrate test audit verify lint
+.PHONY: help init up down restart logs ps status shell ingest-now retag config-check outlets unmatched ownership funding backup-db migrate test audit verify lint
 
 help: ## List targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  %-12s %s\n", $$1, $$2}'
@@ -24,6 +24,9 @@ logs: ## Follow logs
 
 ps: ## Status and health
 	$(COMPOSE) ps
+
+status: ## Overview: ingestion, ownership, funding, backups
+	$(COMPOSE) exec worker newsroom status
 
 shell: ## Shell in the worker container
 	$(COMPOSE) exec worker sh

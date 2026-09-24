@@ -80,6 +80,6 @@
 {% endif %}
 
 {% if last_ingest %}
-<p class="meta-note">Last updated {{ last_ingest.strftime('%Y-%m-%d %H:%M %Z') }}.</p>
+<p class="meta-note">Last updated {{ last_ingest.strftime('%Y-%m-%d %H:%M %Z') }}.{% if stale %} Updates are currently delayed.{% endif %}</p>
 {% endif %}
 {% endblock %}

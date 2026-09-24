@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import ipaddress
+from collections.abc import Callable, Sequence
+
+from starlette.requests import Request
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 CSP = "; ".join(
@@ -97,3 +101,32 @@ class ReadOnlyMethodsMiddleware:
             await send({"type": "http.response.body", "body": b"Method Not Allowed"})
             return
         await self.app(scope, receive, send)
+
+
+def client_ip_resolver(trusted_proxies: Sequence[str]) -> Callable[[Request], str]:
+    """Client IP for rate limiting. Forwarding headers are believed only when the
+    direct peer is a configured proxy (e.g. the cloudflared container); otherwise
+    anyone could pick their own rate-limit bucket by sending a header."""
+    networks = [ipaddress.ip_network(p, strict=False) for p in trusted_proxies]
+
+    def valid(value: str | None) -> str | None:
+        try:
+            return str(ipaddress.ip_address((value or "").strip()))
+        except ValueError:
+            return None
+
+    def resolve(request: Request) -> str:
+        peer = request.client.host if request.client else "unknown"
+        try:
+            peer_ip = ipaddress.ip_address(peer)
+        except ValueError:
+            return peer
+        if not any(peer_ip in n for n in networks):
+            return peer
+        forwarded = valid(request.headers.get("cf-connecting-ip"))
+        if forwarded is None:
+            first = (request.headers.get("x-forwarded-for") or "").split(",")[0]
+            forwarded = valid(first)
+        return forwarded or peer
+
+    return resolve

@@ -35,6 +35,7 @@ class Settings:
     search_rate_limit: str = "30/minute"
     enable_hsts: bool = False
     allowed_hosts: list[str] = field(default_factory=lambda: ["*"])
+    trusted_proxies: list[str] = field(default_factory=list)  # CIDRs allowed to set client IP
     # Worker
     config_dir: Path = Path("/app/config")
     backup_hour: int = 3
@@ -80,6 +81,7 @@ def load_settings() -> Settings:
         search_rate_limit=env.get("SEARCH_RATE_LIMIT", "30/minute"),
         enable_hsts=_bool(env.get("ENABLE_HSTS"), False),
         allowed_hosts=_list(env.get("ALLOWED_HOSTS")) or ["*"],
+        trusted_proxies=_list(env.get("TRUSTED_PROXIES")),
         config_dir=Path(env.get("NEWSROOM_CONFIG_DIR", "/app/config")),
         backup_hour=int(env.get("BACKUP_HOUR", "3")),
         backup_keep=int(env.get("BACKUP_KEEP", "14")),

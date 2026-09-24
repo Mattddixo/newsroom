@@ -5,8 +5,20 @@ where a public record exists, **who funds it**. Every ownership or funding claim
 to its source record. Where no public record exists, the page says
 "Not publicly disclosed". No bias ratings, no sentiment scores, no editorializing.
 
-> Status: **Phase 4 (funding).** Articles (GDELT), ownership chains (Wikidata) and funding
-> records (SEC EDGAR, ProPublica, CRA, curated public-broadcaster figures) are in place.
+**Pages:** the feed (grouped by day; filter by tag, outlet, country, owner or date; headline
+search), **Outlets**, an outlet page (ownership chain, funding, recent articles), **Owners**
+(top-level owners by number of outlets, which makes concentration visible), an owner page
+(everything it holds, directly or through subsidiaries), and **About**, which explains the
+method. On each article card, clicking the "Owned by …" line opens the ownership chain and
+funding records, each with its source.
+
+- [How it runs](#how-it-runs) · [Setup](#setup-from-scratch-ubuntu-2404-docker--compose-installed-tailscale-on-the-host)
+  · [Tasks](#common-tasks) · [Configuration](#configuration-env) · [Articles](#what-gets-ingested)
+  · [Ownership](#ownership) · [Funding](#funding) · [CLI](#cli-reference)
+  · [Operations](#operations) · [Data sources and licences](#data-sources-and-licences)
+  · [Development](#development)
+- Also: [docs/security.md](docs/security.md) (firewall, hardening, checklist) and
+  [docs/going-public.md](docs/going-public.md) (Cloudflare Tunnel).
 
 ## How it runs
 
@@ -23,7 +35,24 @@ All state lives under `/storage/newsroom/` (restic already backs that up):
 /storage/newsroom/
   db/        newsroom.sqlite3 (+ -wal, -shm)
   backups/   newsroom-YYYYMMDDTHHMMSSZ.sqlite3  (nightly, consistent, last 14 kept)
-  logos/     cached outlet logos (phase 3)
+  logos/     cached outlet logos (PNG, from Wikimedia Commons)
+```
+
+Repository layout:
+
+```
+compose.yaml  Dockerfile  Makefile  .env.example  pyproject.toml  uv.lock
+config/       outlets.yaml  tags.yaml  public_funding.yaml   (edited by you, mounted read-only)
+scripts/      init-host.sh  verify-binding.sh
+docs/         security.md  going-public.md
+src/newsroom/
+  sources/    one adapter per source: gdelt, wikidata, funding (SEC, ProPublica, CRA)
+  services/   ingest, tagging, ownership, funding (all database writes happen here)
+  web/        FastAPI app, read-only queries, templates, static assets (htmx vendored)
+  net/        http.py (API client: User-Agent, pacing, backoff), safe_fetch.py (SSRF guard)
+  migrations/ plain versioned SQL, applied by the worker on start
+  cli.py  worker.py  jobs.py  ownership_view.py  funding_view.py
+tests/        pytest, with recorded-format fixtures (no live API calls)
 ```
 
 ## Setup from scratch (Ubuntu 24.04, Docker + Compose installed, Tailscale on the host)
@@ -57,6 +86,7 @@ for Tailscale at boot.
 | `make down`        | Stop                                                                 |
 | `make logs`        | Follow logs from both containers                                     |
 | `make ps`          | Container status and health                                          |
+| `make status`      | Overview: last ingestion, match counts, funding records, last backup |
 | `make ingest-now`  | Fetch new articles now (also runs hourly on its own)                 |
 | `make retag`       | Recompute tags after editing `config/tags.yaml`                      |
 | `make config-check`| Validate `config/outlets.yaml` and `config/tags.yaml`                |
@@ -80,8 +110,9 @@ for Tailscale at boot.
 | `TZ`              | `America/Toronto`  | Date grouping and schedule timezone                          |
 | `LOG_LEVEL`       | `INFO`             |                                                              |
 | `RATE_LIMIT`      | `120/minute`       | Per-IP limit on pages                                        |
-| `SEARCH_RATE_LIMIT` | `30/minute`      | Per-IP limit on search (phase 2)                             |
+| `SEARCH_RATE_LIMIT` | `30/minute`      | Per-IP limit on search                                       |
 | `ALLOWED_HOSTS`   | `*`                | Comma-separated Host header allowlist (set when going public)|
+| `TRUSTED_PROXIES` | (empty)            | CIDRs whose `CF-Connecting-IP`/`X-Forwarded-For` is trusted (going public) |
 | `ENABLE_HSTS`     | `false`            | Only turn on once served over HTTPS                          |
 | `INGEST_INTERVAL_MINUTES` | `60`       | How often the worker ingests                                 |
 | `INGEST_BACKFILL_HOURS`   | `72`       | How far back the very first run reaches                      |
@@ -136,8 +167,11 @@ Data is fetched first and written in a single transaction, so a failed refresh c
 Wikidata calls need `CONTACT_EMAIL` set (Wikimedia's User-Agent policy). Without it the job
 logs an error and skips.
 
-Where no record exists, the site says **"Not publicly disclosed"**, linked to its definition
-on the About page.
+Two labels cover missing records, and both link to their definitions on the About page:
+
+- **"Not publicly disclosed"**: the outlet has no Wikidata item.
+- **"No owner recorded"**: the item exists but states no owner, which is common for
+  independent nonprofits.
 
 ### Curating matches
 
@@ -197,6 +231,7 @@ Run inside the worker: `docker compose exec worker newsroom <command>`.
 
 | Command            | What it does                                                   |
 |--------------------|----------------------------------------------------------------|
+| `status`           | Overview of ingestion, ownership, funding and backups          |
 | `ingest`           | Fetch new articles now. Exits 1 unless the run was fully OK     |
 | `retag`            | Recompute all tags from `tags.yaml`                            |
 | `prune`            | Delete articles older than `RETENTION_DAYS`                    |
@@ -216,21 +251,92 @@ Run inside the worker: `docker compose exec worker newsroom <command>`.
 | `backup`           | Write a consistent SQLite snapshot now                         |
 | `migrate`          | Apply pending schema migrations (the worker does this on start) |
 
+## Operations
+
+- **Health:** `GET /healthz` returns `200 ok` and is never rate limited. Add
+  `http://<tailscale-ip>:8081/healthz` to your service-check script. Both containers also have
+  Docker healthchecks: `web` probes `/healthz`, and `worker` checks a heartbeat file it
+  refreshes every 30 s. `make ps` shows both.
+- **Status:** `make status` prints the last ingestion run, outlet match counts, funding record
+  counts and the age of the latest backup.
+- **Logs:** JSON lines on stdout, rotated by Docker at 5 × 10 MB per container. There is no
+  access log, and visitor IPs are never logged. View with `make logs`.
+- **Schedule (worker):**
+
+  | Job | When |
+  |---|---|
+  | Ingestion | Every 60 min, first run 30 s after start |
+  | Ownership + funding | Every 6 h for records older than 7 days, first run 3 min after start |
+  | Backup | 03:00 |
+  | Retention prune | 03:30 |
+
+  Jobs share a lock, so they never overlap.
+- **Backups:** every night the worker writes a snapshot with SQLite's online backup API.
+  The snapshot is integrity-checked and then atomically renamed, so restic never sees a
+  half-written file. The last `BACKUP_KEEP` snapshots are kept. Run `make backup-db` for one on
+  demand. You can exclude `db/` itself from restic, since the snapshots in `backups/` are the
+  consistent copies.
+- **Restore:**
+
+  ```bash
+  make down
+  sudo cp /storage/newsroom/backups/newsroom-YYYYMMDDTHHMMSSZ.sqlite3 /storage/newsroom/db/newsroom.sqlite3
+  sudo rm -f /storage/newsroom/db/newsroom.sqlite3-wal /storage/newsroom/db/newsroom.sqlite3-shm
+  sudo chown 10001:10001 /storage/newsroom/db/newsroom.sqlite3
+  make up && make status
+  ```
+- **Updating:** `git pull && make test && make up`. Migrations apply automatically when the
+  worker starts.
+
+## Data sources and licences
+
+| Source | Used for | Terms / attribution |
+|---|---|---|
+| [GDELT Project](https://www.gdeltproject.org/) DOC 2.0 API | Article metadata | Free, no key. Credited on the About page. Requests are paced at ≤ 1 per 6 s. |
+| [Wikidata](https://www.wikidata.org/) | Outlet ↔ item matching, ownership chains, SEC CIK / IRS EIN | CC0. Credited anyway. Descriptive User-Agent with contact, per Wikimedia policy. `maxlag` respected. |
+| [Wikimedia Commons](https://commons.wikimedia.org/) | Outlet logos | Per-file licences. Each outlet page links to its file page. |
+| [SEC EDGAR](https://www.sec.gov/edgar) | Links to public-company filings | US government public data. Fair-access policy: contact User-Agent, ≤ 10 req/s (we use ≤ 5). |
+| [ProPublica Nonprofit Explorer](https://projects.propublica.org/nonprofits/) API | US nonprofit Form 990 figures | Credited by name on every record and on the About page. |
+| [CRA List of charities](https://www.canada.ca/en/revenue-agency/services/charities-giving/list-charities.html) | Links to Canadian charity listings | Open Government Licence – Canada. Attribution on the About page. |
+| `config/public_funding.yaml` | Published figures (e.g. public broadcasters) | Each entry carries its own source URL. |
+| [htmx](https://htmx.org) 2.0.11 | Progressive enhancement | BSD 2-Clause, vendored and served locally. |
+
+**Not used / not implemented:**
+
+- **NewsData.io:** not used; there's no key.
+- **Euromedia Ownership Monitor:** not imported, because EU outlets are out of scope for
+  Canada + US. An importer would be one more module in `sources/`, alongside the others.
+
 ## Development
 
 ```bash
 uv sync                 # Python 3.12 + dev tools from uv.lock
-uv run pytest
+uv run pytest           # ~180 tests, all offline (recorded-format fixtures)
 uv run ruff check . && uv run ruff format --check .
-uv run pip-audit
-uv run uvicorn newsroom.web.app:create_app --factory --reload   # http://127.0.0.1:8000
+uv export --frozen --no-emit-project -q > /tmp/req.txt && uv run pip-audit --disable-pip --require-hashes -r /tmp/req.txt
+NEWSROOM_DATA_DIR=./data NEWSROOM_CONFIG_DIR=./config uv run newsroom worker        # worker
+NEWSROOM_DATA_DIR=./data uv run uvicorn newsroom.web.app:create_app --factory --reload  # web, :8000
 ```
 
-Dependencies are pinned with hashes in `uv.lock`. Update with `uv lock --upgrade`,
-then `make test audit`.
+On the server you don't need Python installed. `make test` runs lint and tests in a Docker
+build stage, and `make audit` runs `pip-audit` the same way.
+
+Dependencies are pinned with hashes in `uv.lock`. Update them with `uv lock --upgrade`, then
+run `make test audit`.
+
+**Adding a source:** write one module in `src/newsroom/sources/` following the interfaces in
+`sources/base.py` (articles) or the `FundingRecord` pattern in `sources/funding.py`. Record
+real responses as fixtures under `tests/fixtures/`, and wire it into `jobs.py`. Every row
+it writes must carry `source`, `source_url` and `retrieved_at`.
 
 ## Third-party assets
 
 - [htmx](https://htmx.org) 2.0.11, BSD 2-Clause (`src/newsroom/web/static/js/htmx.LICENSE.txt`),
   vendored from the npm registry and served locally. SHA-512 of the release tarball matched
   the registry's published integrity value.
+
+## Going public
+
+See [docs/going-public.md](docs/going-public.md). It uses a Cloudflare Tunnel from a
+`cloudflared` container, so no router ports are opened. Switching over is a configuration
+change: an override compose file plus `ALLOWED_HOSTS`, `TRUSTED_PROXIES` and `ENABLE_HSTS`.

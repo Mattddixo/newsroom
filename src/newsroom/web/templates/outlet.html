@@ -26,7 +26,7 @@
   {% if articles %}
   <ol class="articles compact">
     {% for r, when in articles %}
-    <li class="article"><a class="title" href="{{ r.url }}" target="_blank" rel="noopener noreferrer">{{ r.title }}</a>
+    <li class="article"><a class="title" href="{{ r.url }}" target="_blank" rel="noopener noreferrer" aria-describedby="new-tab"{% if r.language and r.language != "en" %} lang="{{ r.language }}"{% endif %}>{{ r.title }}</a>
       <div class="meta"><time datetime="{{ when.isoformat() }}">{{ when.strftime('%Y-%m-%d %H:%M') }}</time></div></li>
     {% endfor %}
   </ol>

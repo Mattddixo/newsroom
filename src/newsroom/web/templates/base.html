@@ -18,10 +18,11 @@
       <a class="brand" href="/">newsroom</a>
       <nav aria-label="Main">
         <ul>
-          <li><a href="/">Feed</a></li>
-          <li><a href="/outlets">Outlets</a></li>
-          <li><a href="/owners">Owners</a></li>
-          <li><a href="/about">About</a></li>
+          {%- set section = request.url.path.split("/")[1] %}
+          <li><a href="/"{% if section == "" %} aria-current="page"{% endif %}>Feed</a></li>
+          <li><a href="/outlets"{% if section in ("outlets", "outlet") %} aria-current="page"{% endif %}>Outlets</a></li>
+          <li><a href="/owners"{% if section in ("owners", "owner") %} aria-current="page"{% endif %}>Owners</a></li>
+          <li><a href="/about"{% if section == "about" %} aria-current="page"{% endif %}>About</a></li>
         </ul>
       </nav>
     </div>
@@ -29,6 +30,7 @@
   <main id="main" class="wrap">
     {% block content %}{% endblock %}
   </main>
+  <span id="new-tab" hidden>Opens the original article in a new tab.</span>
   <footer class="site-footer">
     <div class="wrap">
       <p>Ownership and funding shown only where a public record exists, each linked to its source.</p>

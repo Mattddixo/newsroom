@@ -281,6 +281,65 @@ def cmd_entities_remove_id(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_status(_: argparse.Namespace) -> int:
+    """One-screen overview for routine checks."""
+    settings = get_settings()
+    if not settings.db_path.exists():
+        print("No database yet (the worker creates it on start).")
+        return 1
+    now = datetime.now(UTC)
+    conn = connect(settings.db_path)
+    try:
+        one = lambda sql: conn.execute(sql).fetchone()  # noqa: E731
+        run = one(
+            "SELECT status, finished_at, inserted, query_errors FROM ingest_runs"
+            " ORDER BY id DESC LIMIT 1"
+        )
+        ok = one("SELECT max(finished_at) FROM ingest_runs WHERE status = 'ok'")[0]
+        arts = one("SELECT count(*), max(published_at) FROM articles")
+        matches = dict(
+            conn.execute(
+                "SELECT match_status, count(*) FROM outlets WHERE active = 1 GROUP BY 1"
+            ).fetchall()
+        )
+        checked = one("SELECT min(ownership_checked_at) FROM outlets WHERE active = 1")[0]
+        ents = one("SELECT count(*) FROM entities")[0]
+        edges = one("SELECT count(*) FROM ownership_edges")[0]
+        funds = dict(
+            conn.execute("SELECT source, count(*) FROM funding_records GROUP BY 1").fetchall()
+        )
+    finally:
+        conn.close()
+    backups = sorted(settings.backup_dir.glob("newsroom-*.sqlite3"))
+    print("Ingestion")
+    if run:
+        print(
+            f"  last run:        {run['status']} at {run['finished_at'] or '(running)'},"
+            f" {run['inserted']} new, {run['query_errors']} failed queries"
+        )
+    print(f"  last full run:   {ok or 'never'}")
+    print(f"  articles:        {arts[0]} (newest {arts[1] or '-'})")
+    print("Ownership")
+    print("  outlet matches:  " + ", ".join(f"{k} {v}" for k, v in sorted(matches.items())))
+    print(f"  oldest check:    {checked or 'never'}")
+    print(f"  entities/links:  {ents} / {edges}")
+    print("Funding")
+    print(
+        "  records:         " + (", ".join(f"{k} {v}" for k, v in sorted(funds.items())) or "none")
+    )
+    print("Backups")
+    if backups:
+        age = now.timestamp() - backups[-1].stat().st_mtime
+        print(
+            f"  latest:          {backups[-1].name} ({age / 3600:.1f} h ago), {len(backups)} kept"
+        )
+    else:
+        print("  latest:          none yet (nightly at BACKUP_HOUR, or: newsroom backup)")
+    if not settings.contact_email:
+        print("\nWarning: CONTACT_EMAIL is not set; ownership and funding lookups are disabled.")
+    return 0
+
+
 def cmd_worker(_: argparse.Namespace) -> int:
     from newsroom.worker import main as worker_main
 
@@ -314,6 +373,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sub.add_parser("worker", help="run the scheduler (used by the worker container)").set_defaults(
         func=cmd_worker
+    )
+    sub.add_parser("status", help="overview: ingestion, ownership, funding, backups").set_defaults(
+        func=cmd_status
     )
     sub.add_parser("ingest", help="fetch new articles now").set_defaults(func=cmd_ingest)
     sub.add_parser("retag", help="recompute tags after editing tags.yaml").set_defaults(

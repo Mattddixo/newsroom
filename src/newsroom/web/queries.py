@@ -105,6 +105,7 @@ class Article:
     outlet_domain: str
     outlet_entity_id: int | None = None
     logo_path: str | None = None
+    language: str | None = None
     tags: list[tuple[str, str]] = field(default_factory=list)  # (slug, label)
 
 
@@ -164,7 +165,7 @@ def feed(conn: sqlite3.Connection, f: FeedFilters, tz: ZoneInfo) -> FeedPage:
     clause = " WHERE " + " AND ".join(where) if where else ""
     sql = (
         "SELECT a.id, a.url, a.title, a.published_at, o.display_name, o.domain,"  # noqa: S608
-        " o.entity_id, o.logo_path"
+        " o.entity_id, o.logo_path, a.language"
         f" FROM articles a JOIN outlets o ON o.id = a.outlet_id{clause}"
         " ORDER BY a.published_at DESC, a.id DESC LIMIT ?"
     )
@@ -182,6 +183,7 @@ def feed(conn: sqlite3.Connection, f: FeedFilters, tz: ZoneInfo) -> FeedPage:
             outlet_domain=r["domain"],
             outlet_entity_id=r["entity_id"],
             logo_path=r["logo_path"],
+            language=r["language"],
         )
         for r in rows
     ]
@@ -339,7 +341,7 @@ def owner_options(graph: Graph, rows: list[sqlite3.Row]) -> list[tuple[str, str]
 
 def recent_articles(conn: sqlite3.Connection, outlet_id: int, limit: int = 20) -> list[sqlite3.Row]:
     return conn.execute(
-        "SELECT url, title, published_at FROM articles WHERE outlet_id = ?"
+        "SELECT url, title, published_at, language FROM articles WHERE outlet_id = ?"
         " ORDER BY published_at DESC, id DESC LIMIT ?",
         (outlet_id, limit),
     ).fetchall()

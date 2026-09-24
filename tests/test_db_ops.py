@@ -82,3 +82,27 @@ def test_heartbeat(tmp_path: Path) -> None:
     assert heartbeat_ok(hb)
     hb.write_text("0")
     assert not heartbeat_ok(hb)
+
+
+def test_status_command(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from newsroom import cli
+    from newsroom.settings import Settings
+
+    settings = Settings(data_dir=tmp_path)
+    monkeypatch.setattr(cli, "get_settings", lambda: settings)
+    with pytest.raises(SystemExit) as exit_:
+        cli.main(["status"])
+    assert exit_.value.code == 1  # no database yet
+    conn = connect(settings.db_path)
+    migrate(conn)
+    conn.close()
+    backup(settings.db_path, settings.backup_dir, keep=3)
+    with pytest.raises(SystemExit) as exit_:
+        cli.main(["status"])
+    out = capsys.readouterr().out
+    assert exit_.value.code == 0
+    assert "last full run:   never" in out
+    assert "newsroom-" in out and "1 kept" in out
+    assert "CONTACT_EMAIL is not set" in out

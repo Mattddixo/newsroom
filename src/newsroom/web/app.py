@@ -27,7 +27,6 @@ from limits import parse as parse_limit
 from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
-from slowapi.util import get_remote_address
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
@@ -38,7 +37,11 @@ from newsroom.ownership_view import Graph
 from newsroom.settings import Settings, get_settings
 from newsroom.sources.wikidata import QID_RE
 from newsroom.web import queries
-from newsroom.web.security import ReadOnlyMethodsMiddleware, SecurityHeadersMiddleware
+from newsroom.web.security import (
+    ReadOnlyMethodsMiddleware,
+    SecurityHeadersMiddleware,
+    client_ip_resolver,
+)
 
 HERE = Path(__file__).resolve().parent
 LOGO_NAME = re.compile(r"^Q[1-9]\d{0,11}\.(png|jpg|gif|webp)$")
@@ -67,7 +70,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     templates.env.filters["pct"] = lambda v: f"{v * 100:.4g}%"
     templates.env.filters["money"] = _money
     templates.env.filters["source_name"] = _source_name
-    limiter = Limiter(key_func=get_remote_address, default_limits=[settings.rate_limit])
+    client_ip = client_ip_resolver(settings.trusted_proxies)
+    limiter = Limiter(key_func=client_ip, default_limits=[settings.rate_limit])
     search_limit = parse_limit(settings.search_rate_limit)
     app.state.limiter = limiter
     app.state.settings = settings
@@ -105,9 +109,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if dict(request.query_params) != canonical:
             # Drop empty or invalid params (e.g. from the filter form) for clean, shareable URLs.
             return RedirectResponse(f"/?{urlencode(canonical)}" if canonical else "/", 303)
-        if filters.q and not limiter.limiter.hit(
-            search_limit, "search", get_remote_address(request)
-        ):
+        if filters.q and not limiter.limiter.hit(search_limit, "search", client_ip(request)):
             return _error(request, 429, "Too many searches. Please wait a minute and try again.")
         context: dict[str, object] = {
             "filters": filters,
@@ -116,6 +118,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "graph": None,
             "owner_options": [],
             "last_ingest": None,
+            "stale": False,
         }
         with database() as conn:
             if conn is not None:
@@ -127,10 +130,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     context["owner_options"] = queries.owner_options(graph, queries.outlets(conn))
                     last = queries.last_ingest(conn)
                     context["last_ingest"] = last.astimezone(tz) if last else None
+                    stale_after = timedelta(minutes=3 * settings.ingest_interval_minutes)
+                    context["stale"] = bool(last and datetime.now(tz) - last > stale_after)
                 except sqlite3.OperationalError:
                     # Schema not migrated yet (worker still starting).
                     context["page"] = None
         return templates.TemplateResponse(request, "index.html", context)
+
+    @app.get("/robots.txt", include_in_schema=False)
+    def robots() -> PlainTextResponse:
+        return PlainTextResponse("User-agent: *\nDisallow: /fragments/\n")
 
     @app.get("/about", response_class=HTMLResponse)
     def about(request: Request) -> Response:
