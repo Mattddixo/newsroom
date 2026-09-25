@@ -31,6 +31,19 @@ def test_shipped_config_is_valid() -> None:
             "duplicate",
         ),
         ("outlets: [", "invalid YAML"),
+        ("outlets:\n  - {domain: a.ca, name: X, country: CA, language: en, also: b.ca}", "list"),
+        ("outlets:\n  - {domain: a.ca, name: X, country: CA, language: en, also: [bad]}", "also"),
+        ("outlets:\n  - {domain: a.ca, name: X, country: CA, language: en, also: [a.ca]}", "twice"),
+        (
+            "outlets:\n  - {domain: a.ca, name: X, country: CA, language: en, also: [b.ca]}\n"
+            "  - {domain: c.ca, name: Y, country: CA, language: en, also: [b.ca]}",
+            "twice",
+        ),
+        (
+            "outlets:\n  - {domain: a.ca, name: X, country: CA, language: en, also: [b.ca]}\n"
+            "  - {domain: b.ca, name: Y, country: CA, language: en}",
+            "duplicate",
+        ),
     ],
 )
 def test_outlet_validation(tmp_path: Path, body: str, message: str) -> None:
@@ -53,3 +66,13 @@ def test_tag_matching() -> None:
 
 def test_normalize_text() -> None:
     assert normalize_text("  Élection   PARTIELLE ") == "election partielle"
+
+
+def test_other_domains(tmp_path: Path) -> None:
+    path = tmp_path / "outlets.yaml"
+    path.write_text(
+        "outlets:\n  - {domain: ms.now, name: MS NOW, country: US, language: en,"
+        " also: [MSNBC.com]}\n  - {domain: b.ca, name: B, country: CA, language: en}\n"
+    )
+    first, second = load_outlets(path)
+    assert first.also == ("msnbc.com",) and second.also == ()

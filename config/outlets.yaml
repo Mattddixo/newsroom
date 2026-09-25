@@ -3,10 +3,15 @@
 #   name:     display name
 #   country:  ISO 3166-1 alpha-2 (CA, US, ...)
 #   language: ISO 639-1 (en, fr, ...)
+#   also:     optional list of other domains the outlet publishes articles on (after a
+#             rebrand, or a second site); articles there count as this outlet's
 # Removing an entry stops ingestion for it; its existing articles are kept.
 # Check your edits with: docker compose exec worker newsroom config check
+# See which outlets GDELT actually carries, and under which addresses: make coverage
 #
-# DRAFT: a starting list for Canada + US. Review and trim/extend to taste.
+# Addresses reviewed 2026-09-24: MSNBC is MS NOW at ms.now since 2025-11-15 (msnbc.com
+# kept for older links); ABC News serves articles from abcnews.com as well as
+# abcnews.go.com; PBS NewsHour's digital brand is "PBS News" (still pbs.org).
 
 outlets:
   # --- Canada: national and broadcast (English) ---
@@ -52,14 +57,14 @@ outlets:
   - {domain: apnews.com,             name: Associated Press,          country: US, language: en}
   - {domain: reuters.com,            name: Reuters,                   country: US, language: en}
   - {domain: npr.org,                name: NPR,                       country: US, language: en}
-  - {domain: pbs.org,                name: PBS,                       country: US, language: en}
+  - {domain: pbs.org,                name: PBS News,                  country: US, language: en}
   - {domain: voanews.com,            name: Voice of America,          country: US, language: en}
   - {domain: cnn.com,                name: CNN,                       country: US, language: en}
   - {domain: foxnews.com,            name: Fox News,                  country: US, language: en}
   - {domain: nbcnews.com,            name: NBC News,                  country: US, language: en}
   - {domain: cbsnews.com,            name: CBS News,                  country: US, language: en}
-  - {domain: abcnews.go.com,         name: ABC News,                  country: US, language: en}
-  - {domain: msnbc.com,              name: MSNBC,                     country: US, language: en}
+  - {domain: abcnews.go.com,         name: ABC News,                  country: US, language: en, also: [abcnews.com]}
+  - {domain: ms.now,                 name: MS NOW,                    country: US, language: en, also: [msnbc.com]}
   - {domain: cnbc.com,               name: CNBC,                      country: US, language: en}
   - {domain: bloomberg.com,          name: Bloomberg,                 country: US, language: en}
 

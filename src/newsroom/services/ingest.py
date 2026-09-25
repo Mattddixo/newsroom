@@ -98,12 +98,12 @@ def sync_outlets(conn: sqlite3.Connection, outlets: Sequence[OutletConfig], now:
     try:
         for o in outlets:
             conn.execute(
-                "INSERT INTO outlets (domain, display_name, country, language, active,"
-                " created_at, updated_at) VALUES (?, ?, ?, ?, 1, ?, ?)"
+                "INSERT INTO outlets (domain, display_name, country, language, aliases, active,"
+                " created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?)"
                 " ON CONFLICT (domain) DO UPDATE SET display_name = excluded.display_name,"
-                " country = excluded.country, language = excluded.language, active = 1,"
-                " updated_at = excluded.updated_at",
-                (o.domain, o.name, o.country, o.language, stamp, stamp),
+                " country = excluded.country, language = excluded.language,"
+                " aliases = excluded.aliases, active = 1, updated_at = excluded.updated_at",
+                (o.domain, o.name, o.country, o.language, " ".join(o.also), stamp, stamp),
             )
         domains = [o.domain for o in outlets]
         placeholders = ",".join("?" * len(domains)) or "''"
@@ -116,6 +116,14 @@ def sync_outlets(conn: sqlite3.Connection, outlets: Sequence[OutletConfig], now:
     except Exception:
         conn.execute("ROLLBACK")
         raise
+
+
+def outlet_domains(conn: sqlite3.Connection) -> dict[str, list[str]]:
+    """Active outlets' domains, each with its other domains (`also:` in outlets.yaml)."""
+    return {
+        r["domain"]: r["aliases"].split()
+        for r in conn.execute("SELECT domain, aliases FROM outlets WHERE active = 1")
+    }
 
 
 def _fallback_start(

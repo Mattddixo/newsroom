@@ -22,7 +22,7 @@ import logging
 import re
 import tempfile
 import zipfile
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import IO
@@ -79,17 +79,23 @@ def slots_between(start: datetime, end: datetime) -> list[datetime]:
 
 class DomainMatcher:
     """Map a URL host to one of our outlet domains: the host itself or any parent domain
-    (www.cbc.ca -> cbc.ca, ici.radio-canada.ca -> radio-canada.ca). Exact, not substring."""
+    (www.cbc.ca -> cbc.ca, ici.radio-canada.ca -> radio-canada.ca), including an outlet's
+    other domains (`also:`), which map to the outlet's main one. Exact, not substring."""
 
-    def __init__(self, domains: Sequence[str]) -> None:
-        self.domains = frozenset(domains)
+    def __init__(
+        self, domains: Sequence[str], aliases: Mapping[str, Sequence[str]] | None = None
+    ) -> None:
+        self.targets = {d: d for d in domains}
+        for main, others in (aliases or {}).items():
+            if main in self.targets:
+                self.targets.update({alias: main for alias in others})
 
     def __call__(self, host: str) -> str | None:
         parts = host.split(".")
         for i in range(len(parts) - 1):
-            candidate = ".".join(parts[i:])
-            if candidate in self.domains:
-                return candidate
+            main = self.targets.get(".".join(parts[i:]))
+            if main:
+                return main
         return None
 
 
@@ -190,9 +196,15 @@ class GkgFilesSource:
     name = "gdelt"
     overlap = timedelta(0)  # files never change once published: nothing to re-cover
 
-    def __init__(self, client: ApiClient, tmp_dir: Path) -> None:
+    def __init__(
+        self,
+        client: ApiClient,
+        tmp_dir: Path,
+        aliases: Mapping[str, Sequence[str]] | None = None,
+    ) -> None:
         self.client = client
         self.tmp_dir = tmp_dir
+        self.aliases = dict(aliases or {})
 
     def groups(self, domains: Sequence[str]) -> list[list[str]]:
         return [sorted(domains)] if domains else []
@@ -204,7 +216,7 @@ class GkgFilesSource:
         as a slot GDELT skipped once a later slot turns up; a run of missing files at the
         end means "not published yet" (or the host is having trouble), so progress stops
         at the last file read and the next run tries again."""
-        match = DomainMatcher(domains)
+        match = DomainMatcher(domains, self.aliases)
         done = start
         missing: list[datetime] = []
         for slot in slots_between(start, end):
@@ -256,3 +268,47 @@ class GkgFilesSource:
             extra={"url": url, "bytes": size, "lines": lines, "kept": len(records)},
         )
         return records
+
+
+def count_hosts(lines: Iterator[str]) -> dict[str, int]:
+    """Web articles per URL host in GKG lines (for the coverage check)."""
+    counts: dict[str, int] = {}
+    for line in lines:
+        collection, _ = _column(line, 2)
+        if collection != "1":
+            continue
+        url, _ = _column(line, 4)
+        if not url.startswith(("http://", "https://")):
+            continue
+        try:
+            host = host_of(url)
+        except ValueError:
+            continue
+        if host:
+            counts[host] = counts.get(host, 0) + 1
+    return counts
+
+
+def scan_hosts(
+    client: ApiClient, tmp_dir: Path, slots: Sequence[datetime]
+) -> tuple[dict[str, int], int]:
+    """Article counts per host across the given slots (both streams). Returns (counts,
+    files read). Missing files are skipped: this is a survey, not ingestion."""
+    totals: dict[str, int] = {}
+    files = 0
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    for slot in slots:
+        for stream in STREAMS:
+            url = slot_url(slot, stream)
+            with tempfile.SpooledTemporaryFile(max_size=SPOOL_IN_MEMORY, dir=tmp_dir) as buf:
+                try:
+                    client.download(url, buf, MAX_DOWNLOAD)
+                    counts = count_hosts(read_zip(buf))
+                except NotFound:
+                    continue
+                except (zipfile.BadZipFile, EOFError, OSError) as exc:
+                    raise ApiError(f"unreadable zip {url}: {exc}") from exc
+            files += 1
+            for host, n in counts.items():
+                totals[host] = totals.get(host, 0) + n
+    return totals, files

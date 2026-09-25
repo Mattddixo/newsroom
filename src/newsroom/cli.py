@@ -99,6 +99,28 @@ def cmd_outlets_list(_: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_outlets_coverage(args: argparse.Namespace) -> int:
+    rows, files, slots = jobs.coverage(get_settings(), args.hours)
+    print(
+        f"GDELT files read: {files} ({slots} fifteen-minute slots x English + translated,"
+        f" last {args.hours} h)\n"
+    )
+    print(f"{'OUTLET':<28} {'IN GDELT':>8} {'STORED 7D':>9}  RESULT")
+    for r in rows:
+        print(f"{r.name[:27]:<28} {r.in_gdelt:>8} {r.stored_7d:>9}  {r.verdict}")
+        if r.in_gdelt and len(r.hosts) > 1:
+            print("    on: " + ", ".join(f"{h} ({n})" for h, n in sorted(r.hosts.items())))
+        for host, n in r.lookalikes:
+            print(f"    look-alike, not in outlets.yaml: {host} ({n})")
+    missing = sum(1 for r in rows if r.verdict != "carried")
+    print(f"\n{len(rows) - missing} of {len(rows)} outlets found in GDELT's files.")
+    print("  not in GDELT's files: none of its articles in this period. A small outlet may")
+    print("    just be quiet (try --hours 24); a large one means GDELT doesn't carry it.")
+    print("  check look-alikes: similar addresses exist that outlets.yaml doesn't list.")
+    print("    If one is the outlet's own, add it under 'also:' in outlets.yaml.")
+    return 0
+
+
 def cmd_outlets_unmatched(_: argparse.Namespace) -> int:
     conn = connect(get_settings().db_path)
     try:
@@ -484,6 +506,11 @@ def build_parser() -> argparse.ArgumentParser:
     outlets.add_parser(
         "unmatched", help="outlets without a Wikidata match, with candidates"
     ).set_defaults(func=cmd_outlets_unmatched)
+    cov = outlets.add_parser(
+        "coverage", help="which outlets GDELT's recent files contain, and under which addresses"
+    )
+    cov.add_argument("--hours", type=int, default=6, help="hours of files to read (1-48)")
+    cov.set_defaults(func=cmd_outlets_coverage)
     set_qid = outlets.add_parser("set-qid", help="pin an outlet to a Wikidata item")
     set_qid.add_argument("domain")
     set_qid.add_argument("qid", help="e.g. Q12345, or 'none' if no item exists")

@@ -247,3 +247,38 @@ def test_download_refuses_redirects_to_other_hosts(tmp_path: Path) -> None:
 
     results = list(source_for(handler, tmp_path).fetch(DOMAINS, slot(17, 30), slot(17, 50)))
     assert results[0].error and "redirect" in results[0].error
+
+
+def test_other_domains_count_for_their_outlet(tmp_path: Path) -> None:
+    match = DomainMatcher(["ms.now", "cbc.ca"], {"ms.now": ["msnbc.com"], "gone.ca": ["x.ca"]})
+    assert match("www.msnbc.com") == "ms.now"
+    assert match("www.ms.now") == "ms.now"
+    assert match("x.ca") is None  # an alias of an outlet that isn't in this group
+
+    files = Files(
+        {
+            slot_url(slot(17, 45)): gkg_zip(
+                [
+                    gkg_line("https://www.msnbc.com/old", "Old"),
+                    gkg_line("https://www.ms.now/new", "New"),
+                ]
+            ),
+            slot_url(slot(17, 45), ".translation"): gkg_zip([]),
+        }
+    )
+    client = ApiClient("ua", transport=httpx.MockTransport(files), sleep=lambda s: None)
+    source = GkgFilesSource(client, tmp_path / "tmp", {"ms.now": ["msnbc.com"]})
+    [result] = list(source.fetch(["ms.now"], slot(17, 30), slot(17, 50)))
+    assert [(r.title, r.domain) for r in result.records] == [("Old", "ms.now"), ("New", "ms.now")]
+
+
+def test_sync_stores_other_domains(tmp_path: Path) -> None:
+    from newsroom.config import OutletConfig
+    from newsroom.services.ingest import outlet_domains
+
+    conn = make_db(tmp_path / "db.sqlite3", NOW)
+    sync_outlets(conn, [OutletConfig("ms.now", "MS NOW", "US", "en", ("msnbc.com",))], NOW)
+    assert outlet_domains(conn)["ms.now"] == ["msnbc.com"]
+    sync_outlets(conn, [OutletConfig("ms.now", "MS NOW", "US", "en")], NOW)
+    assert outlet_domains(conn)["ms.now"] == []  # removed from the list, removed here
+    conn.close()

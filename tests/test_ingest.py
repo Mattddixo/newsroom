@@ -432,6 +432,7 @@ def test_ingest_job_is_gentle_with_gdelt(tmp_path: Path, monkeypatch: pytest.Mon
         jobs.ingest, "run_ingest", lambda c, source, *a, **k: sources.append(source)
     )
     monkeypatch.setattr(jobs, "sync_config", lambda s: None)
+    make_db(Settings(data_dir=tmp_path).db_path, NOW).close()  # the worker migrates first
 
     jobs.ingest_articles(Settings(data_dir=tmp_path))  # default: the 15-minute files
     assert type(sources[-1]).__name__ == "GkgFilesSource"

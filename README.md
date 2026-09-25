@@ -104,6 +104,7 @@ for Tailscale at boot.
 | `make retag`       | Recompute tags after editing `config/tags.yaml`                      |
 | `make config-check`| Validate `config/outlets.yaml` and `config/tags.yaml`                |
 | `make outlets`     | Outlets with article counts (total and last 24 h)                    |
+| `make coverage`    | Which outlets GDELT's recent files contain, and under which addresses (`HOURS=6`) |
 | `make date-check URL=…` | Explain the date check for one article: robots.txt verdict, every date tag found, which was used and why |
 | `make unmatched`   | Outlets without a Wikidata match, with candidate items               |
 | `make ownership`   | Re-resolve ownership for every outlet now                            |
@@ -157,8 +158,16 @@ make ingest-now                # new outlets are picked up on the next run anywa
 micro config/tags.yaml && make retag
 ```
 
-Every 15 minutes the worker asks GDELT for articles from these outlets, 8 outlets per request,
-at most one request every 6 seconds. It stores **only metadata**: title, URL, outlet, date,
+An outlet that publishes on more than one domain (after a rebrand, say) lists the others
+under `also:`, e.g. `{domain: ms.now, name: MS NOW, ..., also: [msnbc.com]}`. To check
+the list against what GDELT actually carries, run `make coverage` (reads the last 6 hours of
+GDELT's files; `make coverage HOURS=24` for more). For each outlet it reports how many
+articles GDELT has, on which of its addresses, and any look-alike addresses (containing
+the outlet's name) that `outlets.yaml` doesn't list. An outlet GDELT doesn't carry can't be
+fixed here; it will show no recent articles.
+
+Every 15 minutes the worker reads GDELT's latest 15-minute files and keeps the articles from
+these outlets. It stores **only metadata**: title, URL, outlet, date,
 language and the GDELT image URL. The image URL is stored but never shown or fetched.
 There's no article text. Duplicates are removed by canonical URL, which ignores `www.`,
 tracking parameters, fragments and trailing slashes.

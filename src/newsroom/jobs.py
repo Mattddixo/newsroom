@@ -12,12 +12,13 @@ from newsroom.db import connect
 from newsroom.net.http import ApiClient
 from newsroom.net.safe_fetch import FetchBlocked, FetchResult, safe_fetch
 from newsroom.services import funding, ingest, ownership, pubdates
+from newsroom.services.coverage import build_report as coverage_report
 from newsroom.services.ingest import parse_ts, ts
 from newsroom.services.tagging import Tagger, retag_all, sync_tags
 from newsroom.settings import Settings
 from newsroom.sources import funding as funding_sources
 from newsroom.sources.gdelt import GdeltSource
-from newsroom.sources.gdelt_files import GkgFilesSource
+from newsroom.sources.gdelt_files import GkgFilesSource, scan_hosts, slots_between
 from newsroom.sources.pubdate import (
     EARLIEST,
     FUTURE_SKEW,
@@ -69,7 +70,7 @@ def ingest_articles(settings: Settings, *, wait: float = 0) -> ingest.RunSummary
             # covers every outlet, so a new outlet's backfill is limited to the catch-up
             # window (48 hours would be ~400 files).
             client = ApiClient(settings.user_agent, timeout=120.0, min_interval=1.0, max_retries=2)
-            source = GkgFilesSource(client, settings.tmp_dir)
+            source = GkgFilesSource(client, settings.tmp_dir, ingest.outlet_domains(conn))
             backfill = min(backfill, catch_up)
         try:
             return ingest.run_ingest(conn, source, tagger, backfill=backfill, catch_up=catch_up)
@@ -91,8 +92,7 @@ def _publication_dates(
     if not settings.contact_email:
         log.warning("publication dates skipped: CONTACT_EMAIL is not set")
         return None
-    outlet_domains = [r[0] for r in conn.execute("SELECT domain FROM outlets WHERE active = 1")]
-    robots_text, page = _page_fetchers(settings, outlet_domains)
+    robots_text, page = _page_fetchers(settings, ingest.outlet_domains(conn))
     return pubdates.refresh_pub_dates(
         conn,
         page,
@@ -104,14 +104,16 @@ def _publication_dates(
 
 
 def _page_fetchers(
-    settings: Settings, outlet_domains: list[str]
+    settings: Settings, outlets: dict[str, list[str]]
 ) -> tuple[Callable[[str], str], Callable[[str, str], FetchResult]]:
-    """robots.txt and article-page fetchers: SSRF-guarded, outlet sites only, size-capped."""
+    """robots.txt and article-page fetchers: SSRF-guarded, outlet sites only (an outlet's
+    page fetch is limited to its own domains), size-capped."""
+    all_domains = [d for main, others in outlets.items() for d in (main, *others)]
 
     def robots_text(url: str) -> str:
         page = safe_fetch(
             url,
-            allowlist=outlet_domains,
+            allowlist=all_domains,
             allowed_types={"text/plain"},
             max_bytes=500_000,
             timeout=10,
@@ -123,7 +125,7 @@ def _page_fetchers(
     def page(url: str, domain: str) -> FetchResult:
         return safe_fetch(
             url,
-            allowlist=[domain],
+            allowlist=[domain, *outlets.get(domain, [])],
             allowed_types=HTML_TYPES,
             max_bytes=1_500_000,
             timeout=15,
@@ -141,14 +143,21 @@ def explain_date(settings: Settings, url: str) -> list[str]:
         raise ValueError("not an http(s) link")
     conn = connect(settings.db_path)
     try:
-        domains = [r[0] for r in conn.execute("SELECT domain FROM outlets WHERE active = 1")]
+        outlets = ingest.outlet_domains(conn)
         seen_row = conn.execute(
             "SELECT published_at FROM articles WHERE url = ?", (url,)
         ).fetchone()
     finally:
         conn.close()
     host = host_of(url)
-    domain = next((d for d in domains if host_matches(host, d)), None)
+    domain = next(
+        (
+            main
+            for main, others in outlets.items()
+            if any(host_matches(host, d) for d in (main, *others))
+        ),
+        None,
+    )
     if domain is None:
         raise LookupError(f"{host} is not one of the outlets in outlets.yaml")
     seen = parse_ts(seen_row[0]) if seen_row else datetime.now(UTC)
@@ -156,7 +165,7 @@ def explain_date(settings: Settings, url: str) -> list[str]:
         f"outlet: {domain}",
         f"GDELT saw it: {ts(seen) if seen_row else 'not in the database (using now)'}",
     ]
-    robots_text, page = _page_fetchers(settings, domains)
+    robots_text, page = _page_fetchers(settings, outlets)
     verdict = Robots(robots_text).check(url)
     lines.append(f"robots.txt: {verdict}")
     if verdict != "allowed":
@@ -301,3 +310,35 @@ def refresh_funding(
             propublica.close()
     log.info("funding refreshed", extra=vars(summary))
     return summary
+
+
+def coverage(settings: Settings, hours: int) -> tuple[list, int, int]:
+    """Survey the last `hours` of GDELT's 15-minute files: which outlets are there, under
+    which addresses. Returns (report rows, files read, slots asked for)."""
+    if not 1 <= hours <= 48:
+        raise ValueError("hours must be between 1 and 48")
+    sync_config(settings)
+    conn = connect(settings.db_path)
+    try:
+        domains = ingest.outlet_domains(conn)
+        names = dict(conn.execute("SELECT domain, display_name FROM outlets WHERE active = 1"))
+        week = ts(datetime.now(UTC) - timedelta(days=7))
+        stored = dict(
+            conn.execute(
+                "SELECT o.domain, count(a.id) FROM outlets o JOIN articles a"
+                " ON a.outlet_id = o.id AND a.published_at >= ? WHERE o.active = 1"
+                " GROUP BY o.id",
+                (week,),
+            )
+        )
+    finally:
+        conn.close()
+    now = datetime.now(UTC)
+    slots = slots_between(now - timedelta(hours=hours), now)
+    client = ApiClient(settings.user_agent, timeout=120.0, min_interval=1.0, max_retries=2)
+    try:
+        counts, files = scan_hosts(client, settings.tmp_dir, slots)
+    finally:
+        client.close()
+    outlets = {d: (names.get(d, d), others) for d, others in domains.items()}
+    return coverage_report(outlets, counts, stored), files, len(slots)

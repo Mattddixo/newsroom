@@ -26,6 +26,9 @@ class OutletConfig:
     name: str
     country: str
     language: str
+    # Other domains the outlet publishes articles on (a rebrand, a second site). Articles
+    # on these count as this outlet's; subdomains are included as for `domain`.
+    also: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -69,8 +72,20 @@ def load_outlets(path: Path) -> list[OutletConfig]:
             raise ConfigError(f"{where} ({domain}): country must be a 2-letter code")
         if not re.fullmatch(r"[a-z]{2}", language):
             raise ConfigError(f"{where} ({domain}): language must be a 2-letter code")
+        raw_also = item.get("also", [])
+        if not isinstance(raw_also, list):
+            raise ConfigError(f"{where} ({domain}): 'also' must be a list of domains")
+        also = tuple(str(a).strip().lower() for a in raw_also)
+        for alias in also:
+            if not DOMAIN_RE.match(alias):
+                raise ConfigError(f"{where} ({domain}): invalid domain in 'also': {alias!r}")
+            # `seen` holds every domain listed so far, main or not, so a domain can't
+            # belong to two outlets whichever order they're in.
+            if alias in seen or alias == domain or also.count(alias) > 1:
+                raise ConfigError(f"{where} ({domain}): {alias} is listed twice")
         seen.add(domain)
-        outlets.append(OutletConfig(domain, name, country, language))
+        seen.update(also)
+        outlets.append(OutletConfig(domain, name, country, language, also))
     return outlets
 
 
