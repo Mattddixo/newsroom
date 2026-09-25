@@ -340,9 +340,13 @@ def _table_sort(request: Request, allowed: dict, default: str) -> str:
 
 
 def _article_date(when: datetime, now: datetime) -> str:
-    """'Sep 23, 20:38'; the year is added for articles from another year."""
+    """'Sep 23, 8:38 p.m. EDT': 12-hour clock and the time zone, the way outlets print
+    times, so a card can be compared with the article page. The year is added for
+    articles from another year."""
     year = f" {when.year}" if when.year != now.year else ""
-    return f"{when:%b} {when.day}{year}, {when:%H:%M}"
+    hour = when.hour % 12 or 12
+    half = "a.m." if when.hour < 12 else "p.m."
+    return f"{when:%b} {when.day}{year}, {hour}:{when:%M} {half} {when:%Z}".rstrip()
 
 
 SINCE_FORMAT = "%Y%m%d%H%M%S"  # when the feed page was drawn (UTC), for the new-articles poll

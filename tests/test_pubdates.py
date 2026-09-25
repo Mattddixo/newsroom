@@ -368,7 +368,8 @@ def test_cards_say_published_or_seen(conn: sqlite3.Connection, tmp_path: Path) -
     client = TestClient(create_app(Settings(data_dir=tmp_path, rate_limit="1000/minute")))
     html = client.get("/").text
     # 00:14 UTC = 20:14 Toronto on the 23rd; the card uses the outlet's time, not GDELT's
-    assert 'Published <time datetime="2026-09-23T20:14:00-04:00">Sep 23, 20:14</time>' in html
+    published = '<time datetime="2026-09-23T20:14:00-04:00">Sep 23, 8:14 p.m. EDT</time>'
+    assert f"Published {published}" in html
     assert "Seen <time" in html  # articles whose page gave no date
     # sorted by the date shown: "One" (published 20:14 the day before) now sits below
     # "Two" (seen 22:55), although GDELT saw "One" later

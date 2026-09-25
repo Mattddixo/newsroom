@@ -347,10 +347,18 @@ def test_article_date_on_every_card(client: TestClient) -> None:
     from newsroom.web.app import _article_date
 
     html = client.get("/", params={"sort": "outlet"}).text  # no day headings in this sort
-    assert re.search(r"Seen <time datetime=\"2026-09-2\dT[^\"]+\">Sep 2\d, \d\d:\d\d</time>", html)
+    card = r"Seen <time datetime=\"2026-09-2\dT[^\"]+\">Sep 2\d, \d{1,2}:\d\d [ap]\.m\. EDT</time>"
+    assert re.search(card, html)
     now = datetime(2026, 9, 24, tzinfo=TZ)
-    assert _article_date(datetime(2026, 9, 3, 7, 5, tzinfo=TZ), now) == "Sep 3, 07:05"
-    assert _article_date(datetime(2025, 12, 31, 23, 59, tzinfo=TZ), now) == "Dec 31 2025, 23:59"
+    assert _article_date(datetime(2026, 9, 3, 7, 5, tzinfo=TZ), now) == "Sep 3, 7:05 a.m. EDT"
+    assert _article_date(datetime(2026, 9, 3, 18, 50, tzinfo=TZ), now) == "Sep 3, 6:50 p.m. EDT"
+    assert _article_date(datetime(2026, 9, 3, 0, 5, tzinfo=TZ), now) == "Sep 3, 12:05 a.m. EDT"
+    assert _article_date(datetime(2026, 9, 3, 12, 0, tzinfo=TZ), now) == "Sep 3, 12:00 p.m. EDT"
+    # winter: standard time
+    assert (
+        _article_date(datetime(2025, 12, 31, 23, 59, tzinfo=TZ), now)
+        == "Dec 31 2025, 11:59 p.m. EST"
+    )
 
 
 def test_filter_options_collapse_unless_a_filter_is_set(client: TestClient) -> None:

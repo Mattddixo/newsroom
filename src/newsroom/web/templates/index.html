@@ -149,6 +149,6 @@
 {% endif %}
 
 {% if last_ingest %}
-<p class="meta-note">Updated {{ last_ingest.strftime('%Y-%m-%d %H:%M %Z') }}. New articles are added every {{ interval }} minutes.{% if stale %} Updates are delayed right now.{% endif %}</p>
+<p class="meta-note">Updated {{ last_ingest | article_date }}. New articles are added every {{ interval }} minutes.{% if stale %} Updates are delayed right now.{% endif %}</p>
 {% endif %}
 {% endblock %}
