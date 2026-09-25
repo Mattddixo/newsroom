@@ -1,9 +1,9 @@
 """Outlets' own RSS / Atom feeds: a second article source, for outlets GDELT doesn't carry.
 
 Feeds are the publisher's own, machine-readable list of recent headlines. We take only
-what the rest of the app takes from GDELT: headline, link, and time. A feed's
-publication time is the outlet's own statement, so it's used as the article's
-publication date (no page visit needed), with the same plausibility checks.
+what the rest of the app takes from GDELT: headline and link. A feed's dates only pick
+out recent items; the publication date shown comes from the article page, as for GDELT
+articles (feed dates are less reliable: some state the wrong time zone).
 
 Formats: RSS 2.0 (<item>), RSS 1.0 / RDF (<item>, dc:date) and Atom (<entry>).
 Parsing uses defusedxml: no entity expansion, no external entities, no DTD tricks.
@@ -186,7 +186,7 @@ class FeedResult:
     records: list[ArticleRecord]
     items: int  # items in the feed
     off_site: int  # items linking somewhere other than the outlet's site
-    undated: int  # items without a usable date (they get one from the page later)
+    undated: int  # items without a usable date
     too_old: int  # items older than `max_age`
     newest: datetime | None
 
@@ -225,6 +225,9 @@ def feed_records(
             continue
         if published and (newest is None or published > newest):
             newest = published
+        # The feed's own date only decides which items are recent enough to take. It isn't
+        # stored: feeds get time zones wrong (CTV's says "22:50 -0400" for 6:50 p.m. EDT),
+        # so, as for GDELT's articles, the date comes from the article page.
         records.append(
             ArticleRecord(
                 url=item.link,
@@ -233,8 +236,6 @@ def feed_records(
                 published_at=now,
                 language=language,
                 image_url=None,
-                outlet_published_at=published,
-                pubdate_method=f"feed {item.date_field}" if published else None,
             )
         )
     return FeedResult(records, len(items), off_site, undated, too_old, newest)

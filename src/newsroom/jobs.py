@@ -584,7 +584,7 @@ def _test_feed(
         return check
     got = feed_records(items, domain, aliases, language, now, timedelta(days=36500))
     check.items, check.on_site = got.items, len(got.records)
-    check.dated = sum(1 for x in got.records if x.outlet_published_at)
+    check.dated = len(got.records) - got.undated
     check.newest = got.newest
     check.stale = got.newest is not None and now - got.newest > STALE_AFTER
     return check

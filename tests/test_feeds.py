@@ -69,17 +69,13 @@ def test_rss_items_dates_and_filtering() -> None:
     by_title = {r.title: r for r in got.records}
     story = by_title["Council passes housing plan & budget"]  # HTML stripped, entity decoded
     assert story.url == "https://www.example.ca/news/1"
-    assert story.outlet_published_at == datetime(2026, 9, 25, 13, 30, tzinfo=UTC)
-    assert story.pubdate_method == "feed pubdate"
-    assert story.published_at == NOW  # first seen now; the feed's time is the publication date
+    assert story.outlet_published_at is None  # the date comes from the article page
+    assert story.published_at == NOW  # first seen now
     assert got.off_site == 1  # the ad link to another site is dropped
     assert by_title["No date here"].url == "https://example.ca/news/2"  # permalink guid
-    assert by_title["No date here"].outlet_published_at is None
-    assert by_title["Naive date"].outlet_published_at is None  # no time zone: not used
-    assert by_title["From the future"].outlet_published_at is None  # implausible
-    assert "Old news" not in by_title and got.too_old == 1
-    assert by_title["dc date"].pubdate_method == "feed date"
-    assert got.undated == 3
+    assert all(r.outlet_published_at is None for r in got.records)
+    assert "Old news" not in by_title and got.too_old == 1  # feed dates pick recent items
+    assert got.undated == 3  # no date, no time zone, in the future
     assert got.newest == datetime(2026, 9, 25, 13, 30, tzinfo=UTC)
 
 
@@ -87,9 +83,14 @@ def test_atom_and_rdf() -> None:
     [atom] = records(ATOM).records
     assert atom.url == "https://example.ca/news/a"  # relative link resolved; enclosure ignored
     assert atom.title == "Atom & story"
-    assert atom.outlet_published_at == datetime(2026, 9, 25, 13, tzinfo=UTC)  # published wins
+    assert parse_feed(ATOM, "https://example.ca/feed")[0].published == datetime(
+        2026, 9, 25, 13, tzinfo=UTC
+    )  # <published>, not <updated>
     [rdf] = records(RDF).records
-    assert rdf.title == "RDF story" and rdf.outlet_published_at.hour == 8  # type: ignore[union-attr]
+    assert rdf.title == "RDF story"
+    assert parse_feed(RDF, "https://example.ca/feed")[0].published == datetime(
+        2026, 9, 25, 8, tzinfo=UTC
+    )
 
 
 def test_atom_updated_is_not_a_publication_date() -> None:
@@ -97,8 +98,8 @@ def test_atom_updated_is_not_a_publication_date() -> None:
       <link href="https://example.ca/news/e"/><updated>2026-09-25T13:00:00Z</updated>
     </entry></feed>"""
     result = records(body)
-    [item] = result.records
-    assert item.outlet_published_at is None and result.undated == 1  # its page is checked
+    assert len(result.records) == 1
+    assert result.undated == 1 and result.newest is None
 
 
 def test_other_domains_are_the_outlets_own() -> None:
@@ -201,9 +202,9 @@ def test_run_feeds_stores_dated_articles(conn: sqlite3.Connection) -> None:
         " FROM articles WHERE url = 'https://www.example.ca/news/1'"
     ).fetchone()
     assert row["source"] == "feeds" and row["source_url"] == "https://feeds.example.ca/top.xml"
-    assert row["outlet_published_at"] == "2026-09-25T13:30:00Z"
-    assert row["pubdate_method"] == "feed pubdate"
-    assert row["pubdate_checked_at"] is not None  # dated by its source: shown straight away
+    # the feed's date isn't used: the article page is checked, as for GDELT's articles
+    assert row["outlet_published_at"] is None and row["pubdate_method"] is None
+    assert row["pubdate_checked_at"] is None
     undated = conn.execute(
         "SELECT pubdate_checked_at FROM articles WHERE url = 'https://example.ca/news/2'"
     ).fetchone()
@@ -219,7 +220,7 @@ def test_run_feeds_stores_dated_articles(conn: sqlite3.Connection) -> None:
     assert again.inserted == 0  # no duplicates
 
 
-def test_feed_date_fills_in_an_article_gdelt_brought_first(conn: sqlite3.Connection) -> None:
+def test_feed_leaves_an_article_gdelt_brought_first_alone(conn: sqlite3.Connection) -> None:
     run_ingest(
         conn,
         FakeSource(
@@ -233,7 +234,7 @@ def test_feed_date_fills_in_an_article_gdelt_brought_first(conn: sqlite3.Connect
     row = conn.execute(
         "SELECT source, outlet_published_at FROM articles WHERE url = 'https://www.example.ca/news/1'"
     ).fetchone()
-    assert row["source"] == "fake" and row["outlet_published_at"] == "2026-09-25T13:30:00Z"
+    assert row["source"] == "fake" and row["outlet_published_at"] is None
 
 
 def test_robots_txt_is_respected_for_feeds(conn: sqlite3.Connection) -> None:
@@ -455,30 +456,6 @@ def test_suggested_feeds_line_is_valid_yaml(
     assert yaml.safe_load("{" + pasted + "}") == {"feeds": [url]}
 
 
-def test_future_feed_date_is_not_accepted_later(conn: sqlite3.Connection) -> None:
-    # A feed labelling UTC wall-clock time with the local offset: 4 h in the future.
-    body = b"""<rss><channel><item><title>Ahead</title>
-      <link>https://example.ca/news/ahead</link>
-      <pubDate>Fri, 25 Sep 2026 14:00:00 -0400</pubDate></item></channel></rss>"""
-    fetch, _ = fetcher({"https://feeds.example.ca/top.xml": body})
-    robots = Robots(lambda u: "")
-    for hours in (0, 5):  # read again once the stated time has passed
-        run_feeds(
-            conn,
-            fetch,
-            robots,
-            Tagger(TAGS),
-            now=NOW + timedelta(hours=hours),
-            sleep=lambda x: None,
-        )
-    row = conn.execute(
-        "SELECT outlet_published_at, published_at FROM articles"
-        " WHERE url = 'https://example.ca/news/ahead'"
-    ).fetchone()
-    assert row["published_at"] == "2026-09-25T14:00:00Z"  # first seen
-    assert row["outlet_published_at"] is None  # 18:00Z is after that: not a publication time
-
-
 def test_migration_clears_dates_after_first_seen(conn: sqlite3.Connection) -> None:
     conn.executemany(
         "INSERT INTO articles (url, url_key, title, outlet_id, published_at, source, source_url,"
@@ -496,3 +473,23 @@ def test_migration_clears_dates_after_first_seen(conn: sqlite3.Connection) -> No
     conn.executescript(sql.read_text())
     kept = dict(conn.execute("SELECT url_key, outlet_published_at FROM articles").fetchall())
     assert kept == {"a": None, "b": "2026-09-25T14:50:00Z", "c": None, "d": "2026-09-25T13:00:00Z"}
+
+
+def test_migration_removes_feed_dates(conn: sqlite3.Connection) -> None:
+    conn.executemany(
+        "INSERT INTO articles (url, url_key, title, outlet_id, published_at, source, source_url,"
+        " retrieved_at, outlet_published_at, pubdate_method, pubdate_checked_at,"
+        " pubdate_attempts)"
+        " VALUES (?, ?, 't', 1, '2026-09-25T14:00:00Z', 'feeds', 'f', '2026-09-25T14:00:00Z',"
+        " ?, ?, '2026-09-25T14:00:00Z', 0)",
+        [
+            ("https://example.ca/a", "a", "2026-09-25T13:50:00Z", "feed pubdate"),
+            ("https://example.ca/b", "b", "2026-09-25T13:40:00Z", "schema.org datePublished"),
+        ],
+    )
+    sql = Path(__file__).parents[1] / "src/newsroom/migrations/0010_no_feed_dates.sql"
+    conn.executescript(sql.read_text())
+    rows = {r["url_key"]: r for r in conn.execute("SELECT * FROM articles")}
+    assert rows["a"]["outlet_published_at"] is None and rows["a"]["pubdate_method"] is None
+    assert rows["a"]["pubdate_checked_at"] is not None  # stays visible; its page is checked
+    assert rows["b"]["outlet_published_at"] == "2026-09-25T13:40:00Z"  # page dates stay
