@@ -5,19 +5,22 @@
     <a class="outlet" href="/outlet/{{ a.outlet_domain }}">
       {%- if a.logo_path %}<img class="logo" src="/logos/{{ a.logo_path }}" alt="" width="16" height="16" loading="lazy">{% endif -%}
       {{ a.outlet_name }}</a>
+    <span class="sep" aria-hidden="true">·</span>
     {{ article_when(a.published, a.date_kind) }}
-    {% if a.tags %}
-    <ul class="tags" aria-label="Tags">
-      {% for slug, label, why in a.tags %}
-      <li><a href="/?{{ filters.params(tag=slug, page=1) | qs }}" title="{{ why }}">{{ label }}</a></li>
-      {% endfor %}
-    </ul>
+    {% if graph %}
+    {% set owner = ownership_text(graph.summary(a.outlet_entity_id)) %}
+    <span class="sep sep-own" aria-hidden="true">·</span>
+    <details class="own" hx-get="/fragments/ownership/{{ a.outlet_domain }}" hx-trigger="toggle once" hx-target="find .own-panel" hx-swap="innerHTML" hx-disinherit="*">
+      <summary title="{{ owner }}">{{ owner }}</summary>
+      <div class="own-panel"><a href="/outlet/{{ a.outlet_domain }}">Ownership details for {{ a.outlet_name }}</a></div>
+    </details>
     {% endif %}
   </div>
-  {% if graph %}
-  <details class="own" hx-get="/fragments/ownership/{{ a.outlet_domain }}" hx-trigger="toggle once" hx-target="find .own-panel" hx-swap="innerHTML" hx-disinherit="*">
-    <summary>{{ ownership_text(graph.summary(a.outlet_entity_id)) }}</summary>
-    <div class="own-panel"><a href="/outlet/{{ a.outlet_domain }}">Ownership details for {{ a.outlet_name }}</a></div>
-  </details>
+  {% if a.tags %}
+  <ul class="tags" aria-label="Tags">
+    {% for slug, label, why in a.tags %}
+    <li><a href="/?{{ filters.params(tag=slug, page=1) | qs }}" title="{{ why }}">{{ label }}</a></li>
+    {% endfor %}
+  </ul>
   {% endif %}
 </li>
