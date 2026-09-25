@@ -7,6 +7,7 @@ import sqlite3
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from urllib.parse import urljoin
 
 from newsroom.config import ConfigError, load_curated_funding, load_outlets, load_tags
 from newsroom.db import connect
@@ -19,6 +20,7 @@ from newsroom.services.tagging import Tagger, retag_all, sync_tags
 from newsroom.settings import Settings
 from newsroom.sources import funding as funding_sources
 from newsroom.sources.feeds import (
+    COMMON_FEED_PATHS,
     FEED_TYPES,
     MAX_FEED_BYTES,
     discover_feeds,
@@ -412,17 +414,18 @@ def coverage(settings: Settings, hours: int) -> tuple[list, int, int]:
 @dataclass
 class FeedCheck:
     url: str
-    origin: str  # "configured" | "discovered"
+    origin: str  # "configured" | "discovered" (the homepage declares it) | "probed"
     title: str = ""
     error: str = ""
     items: int = 0
     on_site: int = 0
     dated: int = 0
     newest: datetime | None = None
+    stale: bool = False  # newest item older than STALE_AFTER
 
     @property
     def usable(self) -> bool:
-        return not self.error and self.on_site > 0
+        return not self.error and self.on_site > 0 and not self.stale
 
 
 @dataclass
@@ -431,12 +434,16 @@ class OutletFeeds:
     name: str
     gdelt_week: int
     checks: list[FeedCheck]
+    discovery: str = ""  # why autodiscovery found nothing, when it didn't
 
 
 LOW_GDELT_WEEK = 5  # below this many GDELT articles in 7 days, look for a feed
+STALE_AFTER = timedelta(days=30)
 
 
-def check_feeds(settings: Settings, discover_all: bool = False) -> list[OutletFeeds]:
+def check_feeds(
+    settings: Settings, discover_all: bool = False, now: datetime | None = None
+) -> list[OutletFeeds]:
     """Test every configured feed; for outlets without a working one (and little from
     GDELT), find the feeds their homepage declares and test those. Changes nothing."""
     sync_config(settings)
@@ -454,20 +461,34 @@ def check_feeds(settings: Settings, discover_all: bool = False) -> list[OutletFe
     finally:
         conn.close()
     fetch_feed = _feed_fetcher(settings)
-    now = datetime.now(UTC).replace(microsecond=0)
+    now = (now or datetime.now(UTC)).replace(microsecond=0)
     report = []
     for r in rows:
         aliases = domains.get(r["domain"], [])
 
         context = (r["domain"], aliases, r["language"], robots, fetch_feed, now)
         checks = [_test_feed(FeedCheck(url, "configured"), *context) for url in r["feeds"].split()]
+        why = ""
         wants_discovery = discover_all or r["week"] < LOW_GDELT_WEEK
         if wants_discovery and not any(c.usable for c in checks):
             known = {c.url for c in checks}
-            for url, title in _discover(settings, r["domain"], aliases, robots)[:5]:
+            found, why, base = _discover(settings, r["domain"], aliases, robots)
+            for url, title in found[:5]:
                 if url not in known:
+                    known.add(url)
                     checks.append(_test_feed(FeedCheck(url, "discovered", title), *context))
-        report.append(OutletFeeds(r["domain"], r["display_name"], r["week"], checks))
+            if not any(c.usable for c in checks):
+                # Nothing declared (or nothing working): try the platforms' usual addresses.
+                for path in COMMON_FEED_PATHS:
+                    url = urljoin(base, path)
+                    if url in known:
+                        continue
+                    known.add(url)
+                    probe = _test_feed(FeedCheck(url, "probed"), *context)
+                    if probe.usable:
+                        checks.append(probe)
+                        break
+        report.append(OutletFeeds(r["domain"], r["display_name"], r["week"], checks, why))
     return report
 
 
@@ -492,16 +513,19 @@ def _test_feed(
     check.items, check.on_site = got.items, len(got.records)
     check.dated = sum(1 for x in got.records if x.outlet_published_at)
     check.newest = got.newest
+    check.stale = got.newest is not None and now - got.newest > STALE_AFTER
     return check
 
 
 def _discover(
     settings: Settings, domain: str, aliases: list[str], robots: Robots
-) -> list[tuple[str, str]]:
-    """Feeds the outlet's homepage declares (RSS autodiscovery)."""
+) -> tuple[list[tuple[str, str]], str, str]:
+    """Feeds the outlet's homepage declares (RSS autodiscovery). Returns (feeds, why none
+    were found, the homepage's final URL to resolve other addresses against)."""
     home = f"https://{domain}/"
-    if robots.check(home) != "allowed":
-        return []
+    verdict = robots.check(home)
+    if verdict != "allowed":
+        return [], f"homepage not read: robots.txt {verdict}", home
     try:
         page = safe_fetch(
             home,
@@ -512,6 +536,7 @@ def _discover(
             user_agent=settings.user_agent,
             truncate=True,
         )
-    except FetchBlocked:
-        return []
-    return discover_feeds(page.body.decode("utf-8", errors="replace"), page.url)
+    except FetchBlocked as exc:
+        return [], f"homepage not read: {str(exc)[:100]}", home
+    found = discover_feeds(page.body.decode("utf-8", errors="replace"), page.url)
+    return found, "" if found else "the homepage declares no feed", page.url

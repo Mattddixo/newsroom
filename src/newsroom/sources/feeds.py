@@ -44,6 +44,20 @@ FEED_TYPES = frozenset(
 MAX_FEED_BYTES = 5 * 1024 * 1024
 MAX_ITEMS = 300
 _TAGS = re.compile(r"<[^>]+>")
+_BARE_AMP = re.compile(rb"&(?!(?:#[0-9]+|#x[0-9A-Fa-f]+|[A-Za-z][A-Za-z0-9]*);)")
+# Tried when a homepage declares no feed: the usual addresses on common news platforms
+# (WordPress, Arc XP, ...). A guess only counts if it serves a current feed of the
+# outlet's own articles.
+COMMON_FEED_PATHS = (
+    "/feed/",
+    "/rss",
+    "/rss.xml",
+    "/feed",
+    "/rss/",
+    "/feeds/rss.xml",
+    "/index.xml",
+    "/arc/outboundfeeds/rss/?outputType=xml",
+)
 
 
 def _local(tag: object) -> str:
@@ -113,7 +127,17 @@ def parse_feed(body: bytes, base_url: str) -> list[FeedItem]:
     isn't a feed."""
     try:
         root = SafeET.fromstring(body, forbid_dtd=False)
-    except (SafeET.ParseError, DefusedXmlException, ValueError) as exc:
+    except SafeET.ParseError as exc:
+        # The most common feed bug: a bare "&" in a title or URL. Escaping bare ones (and
+        # nothing else) is what lenient feed readers do; entities stay forbidden.
+        repaired = _BARE_AMP.sub(b"&amp;", body)
+        if repaired == body:
+            raise ApiError(f"not a readable feed: {exc}") from exc
+        try:
+            root = SafeET.fromstring(repaired, forbid_dtd=False)
+        except (SafeET.ParseError, DefusedXmlException, ValueError) as exc2:
+            raise ApiError(f"not a readable feed: {exc}") from exc2
+    except (DefusedXmlException, ValueError) as exc:
         raise ApiError(f"not a readable feed: {exc}") from exc
     kind = _local(root.tag)
     if kind == "feed":
@@ -238,6 +262,13 @@ def discover_feeds(html: str, page_url: str) -> list[tuple[str, str]]:
     out: list[tuple[str, str]] = []
     for href, title in parser.links:
         url = urljoin(page_url, href.strip())
+        if _is_comments_feed(url, title):
+            continue
         if is_http_url(url) and url not in [u for u, _ in out]:
             out.append((url, title))
     return out
+
+
+def _is_comments_feed(url: str, title: str) -> bool:
+    """WordPress and others declare a comments feed next to the articles one."""
+    return "/comments/" in url or "comments feed" in title.lower()

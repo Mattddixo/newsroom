@@ -139,6 +139,10 @@ def cmd_outlets_feeds(args: argparse.Namespace) -> int:
                 print(f"        FAILED: {c.error}")
             elif not c.on_site:
                 print(f"        NOT USABLE: {c.items} items, none link to the outlet's own site")
+            elif c.stale:
+                print(
+                    f"        STALE: newest item {c.newest:%Y-%m-%d}; the feed isn't being updated"
+                )
             else:
                 newest = f"{c.newest:%Y-%m-%d %H:%M} UTC" if c.newest else "no dates"
                 print(
@@ -147,8 +151,9 @@ def cmd_outlets_feeds(args: argparse.Namespace) -> int:
                 )
         usable = [c.url for c in o.checks if c.usable]
         if not o.checks:
-            print("    no feed configured, and the homepage declares none")
-        elif usable and any(c.origin == "discovered" for c in o.checks if c.usable):
+            reason = o.discovery or "no feed configured"
+            print(f"    no working feed found ({reason}; usual feed addresses tried)")
+        elif usable and any(c.origin != "configured" for c in o.checks if c.usable):
             print(f"    suggested for outlets.yaml:  feeds: [{', '.join(usable)}]")
         print()
     working = sum(1 for o in shown if any(c.usable for c in o.checks))

@@ -301,7 +301,7 @@ def test_check_feeds_reports_and_discovers(monkeypatch: pytest.MonkeyPatch, tmp_
         return FetchResult(url, kind, pages[url])
 
     monkeypatch.setattr(jobs, "safe_fetch", fake)
-    report = {o.domain: o for o in jobs.check_feeds(settings)}
+    report = {o.domain: o for o in jobs.check_feeds(settings, now=NOW)}
     configured, discovered = report["example.ca"].checks
     assert configured.error and "404" in configured.error
     assert discovered.origin == "discovered" and discovered.usable
@@ -320,3 +320,97 @@ def test_outlet_note_is_shown(tmp_path: Path) -> None:
     client = TestClient(create_app(settings))
     assert note.replace("'", "&#39;") in client.get("/outlet/example.ca").text
     assert note.replace("'", "&#39;") in client.get("/outlets").text
+
+
+def test_bare_ampersands_are_repaired_but_entities_stay_forbidden() -> None:
+    body = b"""<rss><channel><item><title>Q&A: taxes & you &amp; me</title>
+      <link>https://example.ca/q?a=1&b=2</link></item></channel></rss>"""
+    [item] = parse_feed(body, "https://example.ca/feed")
+    assert item.title == "Q&A: taxes & you & me"
+    assert item.link == "https://example.ca/q?a=1&b=2"
+    evil = (
+        b'<?xml version="1.0"?><!DOCTYPE r [<!ENTITY x "y">]>'
+        b"<rss><channel><item>&x; & z</item></channel></rss>"
+    )
+    with pytest.raises(ApiError):
+        parse_feed(evil, "https://example.ca/feed")
+
+
+def test_comment_feeds_are_not_offered() -> None:
+    html = """<link rel="alternate" type="application/rss+xml" title="Site » Feed" href="/feed/">
+      <link rel="alternate" type="application/rss+xml" title="Site » Comments Feed"
+            href="/comments/feed/">"""
+    assert discover_feeds(html, "https://example.ca/") == [
+        ("https://example.ca/feed/", "Site » Feed")
+    ]
+
+
+def _check_setup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, pages: dict[str, tuple[str, bytes]]
+):  # type: ignore[no-untyped-def]
+    from newsroom import jobs
+
+    settings = Settings(data_dir=tmp_path, config_dir=tmp_path)
+    (tmp_path / "outlets.yaml").write_text(
+        "outlets:\n  - {domain: example.ca, name: Example, country: CA, language: en}\n"
+    )
+    (tmp_path / "tags.yaml").write_text("tags:\n  x: {label: X, keywords: [x]}\n")
+    make_db(settings.db_path, NOW).close()
+    requested: list[str] = []
+
+    def fake(url: str, **kw):  # type: ignore[no-untyped-def]
+        requested.append(url)
+        if url.endswith("/robots.txt"):
+            return FetchResult(url, "text/plain", b"")
+        if url not in pages:
+            raise FetchBlocked("unexpected status 403", status=403)
+        kind, body = pages[url]
+        return FetchResult(url, kind, body)
+
+    monkeypatch.setattr(jobs, "safe_fetch", fake)
+    return jobs, settings, requested
+
+
+def test_usual_feed_addresses_are_tried_when_none_is_declared(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    jobs, settings, requested = _check_setup(
+        tmp_path,
+        monkeypatch,
+        {
+            "https://example.ca/": ("text/html", b"<html>no feed links</html>"),
+            "https://example.ca/rss.xml": ("application/rss+xml", RSS),
+        },
+    )
+    [outlet] = jobs.check_feeds(settings, now=NOW)
+    [probe] = outlet.checks
+    assert probe.origin == "probed" and probe.url == "https://example.ca/rss.xml" and probe.usable
+    assert "https://example.ca/rss.xml" in requested
+    assert requested.index("https://example.ca/feed/") < requested.index(
+        "https://example.ca/rss.xml"
+    )
+
+
+def test_blocked_homepage_is_explained(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    jobs, settings, _ = _check_setup(tmp_path, monkeypatch, {})
+    [outlet] = jobs.check_feeds(settings, now=NOW)
+    assert outlet.checks == []
+    assert "homepage not read" in outlet.discovery and "403" in outlet.discovery
+
+
+def test_stale_feed_is_not_suggested(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    old = RSS.replace(b"2026", b"2025")  # every item a year old
+    jobs, settings, _ = _check_setup(
+        tmp_path,
+        monkeypatch,
+        {
+            "https://example.ca/": (
+                "text/html",
+                b'<link rel="alternate" type="application/rss+xml" href="/old.xml">',
+            ),
+            "https://example.ca/old.xml": ("application/rss+xml", old),
+        },
+    )
+    [outlet] = jobs.check_feeds(settings, now=NOW)
+    declared = outlet.checks[0]
+    assert declared.stale and not declared.usable

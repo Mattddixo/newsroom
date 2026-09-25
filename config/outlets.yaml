@@ -19,7 +19,8 @@
 outlets:
   # --- Canada: national and broadcast (English) ---
   - {domain: cbc.ca,                 name: CBC News,                  country: CA, language: en}
-  - {domain: ctvnews.ca,             name: CTV News,                  country: CA, language: en}
+  - {domain: ctvnews.ca,             name: CTV News,                  country: CA, language: en,
+     note: "Few articles: GDELT carries little of CTV News, and CTV News publishes no RSS feeds (per its FAQ)."}
   - {domain: globalnews.ca,          name: Global News,               country: CA, language: en}
   - {domain: citynews.ca,            name: CityNews,                  country: CA, language: en}
   - {domain: cp24.com,               name: CP24,                      country: CA, language: en}
@@ -35,7 +36,8 @@ outlets:
   - {domain: nationalobserver.com,   name: Canada's National Observer, country: CA, language: en}
   - {domain: thenarwhal.ca,          name: The Narwhal,               country: CA, language: en}
   - {domain: thetyee.ca,             name: The Tyee,                  country: CA, language: en}
-  - {domain: thelogic.co,            name: The Logic,                 country: CA, language: en}
+  - {domain: thelogic.co,            name: The Logic,                 country: CA, language: en,
+     feeds: [https://thelogic.co/feed/]}
 
   # --- Canada: regional dailies (English) ---
   - {domain: montrealgazette.com,    name: Montreal Gazette,          country: CA, language: en}
@@ -48,11 +50,14 @@ outlets:
   - {domain: thechronicleherald.ca,  name: The Chronicle Herald,      country: CA, language: en}
 
   # --- Canada: French-language ---
-  - {domain: radio-canada.ca,        name: Radio-Canada,              country: CA, language: fr}
+  - {domain: radio-canada.ca,        name: Radio-Canada,              country: CA, language: fr,
+     feeds: [https://ici.radio-canada.ca/rss/4159]}
   - {domain: lapresse.ca,            name: La Presse,                 country: CA, language: fr}
   - {domain: ledevoir.com,           name: Le Devoir,                 country: CA, language: fr}
-  - {domain: journaldemontreal.com,  name: Le Journal de Montréal,    country: CA, language: fr}
-  - {domain: journaldequebec.com,    name: Le Journal de Québec,      country: CA, language: fr}
+  - {domain: journaldemontreal.com,  name: Le Journal de Montréal,    country: CA, language: fr,
+     feeds: [https://www.journaldemontreal.com/rss.xml]}
+  - {domain: journaldequebec.com,    name: Le Journal de Québec,      country: CA, language: fr,
+     feeds: [https://www.journaldequebec.com/rss.xml]}
   - {domain: tvanouvelles.ca,        name: TVA Nouvelles,             country: CA, language: fr,
      feeds: [https://www.tvanouvelles.ca/rss.xml]}
   - {domain: lesoleil.com,           name: Le Soleil,                 country: CA, language: fr}
@@ -62,14 +67,17 @@ outlets:
   - {domain: reuters.com,            name: Reuters,                   country: US, language: en,
      note: "No articles: GDELT doesn't carry Reuters, and Reuters has published no public RSS feeds since June 2020."}
   - {domain: npr.org,                name: NPR,                       country: US, language: en}
-  - {domain: pbs.org,                name: PBS News,                  country: US, language: en}
+  - {domain: pbs.org,                name: PBS News,                  country: US, language: en,
+     feeds: [https://www.pbs.org/newshour/feeds/rss/headlines]}
   - {domain: voanews.com,            name: Voice of America,          country: US, language: en}
   - {domain: cnn.com,                name: CNN,                       country: US, language: en}
   - {domain: foxnews.com,            name: Fox News,                  country: US, language: en}
   - {domain: nbcnews.com,            name: NBC News,                  country: US, language: en}
   - {domain: cbsnews.com,            name: CBS News,                  country: US, language: en}
-  - {domain: abcnews.go.com,         name: ABC News,                  country: US, language: en, also: [abcnews.com]}
-  - {domain: ms.now,                 name: MS NOW,                    country: US, language: en, also: [msnbc.com]}
+  - {domain: abcnews.go.com,         name: ABC News,                  country: US, language: en, also: [abcnews.com],
+     feeds: [https://feeds.abcnews.com/abcnews/topstories]}
+  - {domain: ms.now,                 name: MS NOW,                    country: US, language: en, also: [msnbc.com],
+     feeds: [https://www.ms.now/feed]}
   - {domain: cnbc.com,               name: CNBC,                      country: US, language: en}
   - {domain: bloomberg.com,          name: Bloomberg,                 country: US, language: en}
 
@@ -78,18 +86,22 @@ outlets:
      feeds: [https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml]}
   - {domain: washingtonpost.com,     name: The Washington Post,       country: US, language: en,
      feeds: [https://feeds.washingtonpost.com/rss/national, https://feeds.washingtonpost.com/rss/politics]}
-  - {domain: wsj.com,                name: The Wall Street Journal,   country: US, language: en}
+  - {domain: wsj.com,                name: The Wall Street Journal,   country: US, language: en,
+     feeds: [https://feeds.a.dj.com/rss/RSSWorldNews.xml]}
   - {domain: usatoday.com,           name: USA Today,                 country: US, language: en}
   - {domain: latimes.com,            name: Los Angeles Times,         country: US, language: en}
   - {domain: nypost.com,             name: New York Post,             country: US, language: en}
-  - {domain: washingtontimes.com,    name: The Washington Times,      country: US, language: en}
+  - {domain: washingtontimes.com,    name: The Washington Times,      country: US, language: en,
+     feeds: [https://www.washingtontimes.com/rss/headlines/news/]}
   - {domain: bostonglobe.com,        name: The Boston Globe,          country: US, language: en}
   - {domain: chicagotribune.com,     name: Chicago Tribune,           country: US, language: en}
   - {domain: sfchronicle.com,        name: San Francisco Chronicle,   country: US, language: en}
-  - {domain: seattletimes.com,       name: The Seattle Times,         country: US, language: en}
+  - {domain: seattletimes.com,       name: The Seattle Times,         country: US, language: en,
+     feeds: [https://www.seattletimes.com/feed/]}
   - {domain: miamiherald.com,        name: Miami Herald,              country: US, language: en}
   - {domain: csmonitor.com,          name: The Christian Science Monitor, country: US, language: en}
-  - {domain: theatlantic.com,        name: The Atlantic,              country: US, language: en}
+  - {domain: theatlantic.com,        name: The Atlantic,              country: US, language: en,
+     feeds: [https://www.theatlantic.com/feed/all/]}
   - {domain: newyorker.com,          name: The New Yorker,            country: US, language: en}
   - {domain: time.com,               name: TIME,                      country: US, language: en}
   - {domain: newsweek.com,           name: Newsweek,                  country: US, language: en}
@@ -98,15 +110,21 @@ outlets:
   - {domain: politico.com,           name: Politico,                  country: US, language: en,
      feeds: [https://rss.politico.com/politics-news.xml]}
   - {domain: axios.com,              name: Axios,                     country: US, language: en}
-  - {domain: thehill.com,            name: The Hill,                  country: US, language: en}
+  - {domain: thehill.com,            name: The Hill,                  country: US, language: en,
+     feeds: [https://thehill.com/feed/]}
   - {domain: vox.com,                name: Vox,                       country: US, language: en}
-  - {domain: huffpost.com,           name: HuffPost,                  country: US, language: en}
+  - {domain: huffpost.com,           name: HuffPost,                  country: US, language: en,
+     feeds: [https://www.huffpost.com/section/front-page/feed]}
   - {domain: businessinsider.com,    name: Business Insider,          country: US, language: en}
   - {domain: breitbart.com,          name: Breitbart,                 country: US, language: en}
-  - {domain: dailywire.com,          name: The Daily Wire,            country: US, language: en}
+  - {domain: dailywire.com,          name: The Daily Wire,            country: US, language: en,
+     feeds: [https://www.dailywire.com/feeds/rss.xml]}
 
   # --- US: nonprofit newsrooms ---
-  - {domain: propublica.org,         name: ProPublica,                country: US, language: en}
+  - {domain: propublica.org,         name: ProPublica,                country: US, language: en,
+     feeds: [https://www.propublica.org/feeds/propublica/main]}
   - {domain: texastribune.org,       name: The Texas Tribune,         country: US, language: en}
-  - {domain: calmatters.org,         name: CalMatters,                country: US, language: en}
-  - {domain: themarshallproject.org, name: The Marshall Project,      country: US, language: en}
+  - {domain: calmatters.org,         name: CalMatters,                country: US, language: en,
+     feeds: [https://calmatters.org/feed/]}
+  - {domain: themarshallproject.org, name: The Marshall Project,      country: US, language: en,
+     feeds: [https://www.themarshallproject.org/rss/recent]}
