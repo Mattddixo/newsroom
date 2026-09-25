@@ -71,7 +71,12 @@ def world(tmp_path_factory: pytest.TempPathFactory) -> tuple[sqlite3.Connection,
             seen - timedelta(minutes=rng.choice([0, 5, 90, 600])) if rng.random() < 0.6 else None
         )
         host = "ici.radio-canada.ca" if d == "radio-canada.ca" else d
-        records.append(rec(f"https://{host}/a/{i}", title, seen, d))
+        themes = tuple(
+            (t, rng.randint(1, 5))
+            for t in ("ECON_HOUSING_PRICES", "ELECTION", "ECON_INFLATION")
+            if rng.random() < 0.3
+        )
+        records.append(rec(f"https://{host}/a/{i}", title, seen, d, themes))
         meta.append(
             {
                 "url": f"https://{host}/a/{i}",
@@ -79,6 +84,7 @@ def world(tmp_path_factory: pytest.TempPathFactory) -> tuple[sqlite3.Connection,
                 "domain": d,
                 "seen": seen,
                 "published": published,
+                "themes": dict(themes),
             }
         )
     run_ingest(conn, FakeSource([QueryResult("q", records)]), Tagger(TAGS), now=NOW)
@@ -91,7 +97,7 @@ def world(tmp_path_factory: pytest.TempPathFactory) -> tuple[sqlite3.Connection,
                 (m["published"].strftime("%Y-%m-%dT%H:%M:%SZ"), m["id"]),
             )
         m["shown"] = m["published"] or m["seen"]
-        m["tags"] = set(Tagger(TAGS).match(m["title"]))
+        m["tags"] = set(Tagger(TAGS).from_themes(m["themes"]))
 
     # Ownership: Q900 owns cbc.ca directly and radio-canada.ca through Q903.
     stamp = "2026-09-24T00:00:00Z"

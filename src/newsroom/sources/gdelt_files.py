@@ -45,6 +45,7 @@ UNPUBLISHED_GRACE = timedelta(hours=1)  # missing files older than this get a wa
 MAX_MISSING_IN_A_ROW = 4  # then stop asking; the host may be having trouble
 COLUMNS = 27
 _TITLE = re.compile(r"<PAGE_TITLE>(.*?)</PAGE_TITLE>", re.S)
+_THEME = re.compile(r"^[A-Z0-9_]{1,120}$")
 _SOURCE_LANG = re.compile(r"srclc:([a-z]{3})")
 LANGUAGES = {  # ISO 639-2 (GDELT) -> 639-1 (what the rest of the app uses)
     "fra": "fr",
@@ -110,6 +111,17 @@ def _column(line: str, index: int) -> tuple[str, int]:
     return line[start : end if end != -1 else len(line)], start
 
 
+def theme_counts(v2themes: str) -> tuple[tuple[str, int], ...]:
+    """GKG V2Themes ("THEME,offset;THEME,offset;...": one entry per mention in the text)
+    as (theme, mentions) pairs."""
+    counts: dict[str, int] = {}
+    for entry in v2themes.split(";"):
+        name = entry.partition(",")[0]
+        if name and _THEME.match(name):
+            counts[name] = counts.get(name, 0) + 1
+    return tuple(sorted(counts.items()))
+
+
 def parse_lines(
     lines: Iterator[str], match: DomainMatcher, translated: bool
 ) -> tuple[list[ArticleRecord], int]:
@@ -151,6 +163,7 @@ def parse_lines(
                 published_at=seen,
                 language=language,
                 image_url=image if image and is_http_url(image) else None,
+                themes=theme_counts(cols[8]),
             )
         )
     return records, count

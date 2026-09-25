@@ -19,6 +19,8 @@ class ArticleRecord:
     # The outlet's own publication time, when the source states it (e.g. a feed's pubDate).
     outlet_published_at: datetime | None = None
     pubdate_method: str | None = None
+    # GDELT's theme coding of the article text: (theme, mentions). Empty for other sources.
+    themes: tuple[tuple[str, int], ...] = ()
 
 
 @dataclass

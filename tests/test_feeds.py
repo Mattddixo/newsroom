@@ -209,11 +209,8 @@ def test_run_feeds_stores_dated_articles(conn: sqlite3.Connection) -> None:
         "SELECT pubdate_checked_at FROM articles WHERE url = 'https://example.ca/news/2'"
     ).fetchone()
     assert undated[0] is None  # the date check will read its page
-    tags = conn.execute(
-        "SELECT count(*) FROM article_tags at JOIN articles a ON a.id = at.article_id"
-        " WHERE a.url = 'https://www.example.ca/news/1'"
-    ).fetchone()[0]
-    assert tags >= 1  # "housing" keyword tagged, as for GDELT articles
+    tags = conn.execute("SELECT count(*) FROM article_tags").fetchone()[0]
+    assert tags == 0  # feed articles are tagged from their page's sections (date check)
     again = run_feeds(
         conn, fetch, Robots(lambda u: ""), Tagger(TAGS), now=NOW, sleep=lambda x: None
     )
@@ -296,7 +293,7 @@ def test_check_feeds_reports_and_discovers(monkeypatch: pytest.MonkeyPatch, tmp_
         " feeds: [https://example.ca/broken.xml]}\n"
         "  - {domain: nofeed.ca, name: No Feed, country: CA, language: en}\n"
     )
-    (tmp_path / "tags.yaml").write_text("tags:\n  x: {label: X, keywords: [x]}\n")
+    (tmp_path / "tags.yaml").write_text("tags:\n  x: {label: X, sections: [x]}\n")
     make_db(settings.db_path, NOW).close()
     pages = {
         "https://example.ca/": b'<link rel="alternate" type="application/rss+xml" href="/rss.xml">',
@@ -365,7 +362,7 @@ def _check_setup(
     (tmp_path / "outlets.yaml").write_text(
         "outlets:\n  - {domain: example.ca, name: Example, country: CA, language: en}\n"
     )
-    (tmp_path / "tags.yaml").write_text("tags:\n  x: {label: X, keywords: [x]}\n")
+    (tmp_path / "tags.yaml").write_text("tags:\n  x: {label: X, sections: [x]}\n")
     make_db(settings.db_path, NOW).close()
     requested: list[str] = []
 

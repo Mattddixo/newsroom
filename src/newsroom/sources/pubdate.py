@@ -46,12 +46,20 @@ META_NAMES = (
     "dcterms.created",
 )
 _OFFSET_NO_COLON = re.compile(r"([+-]\d{2})(\d{2})$")
+# Section and topic labels the outlet gives the article (one per tag; the list ones are
+# comma-separated).
+LABEL_META = frozenset(
+    {"article:section", "article:tag", "news_keywords", "parsely-section", "parsely-tags"}
+)
+LIST_META = frozenset({"news_keywords", "parsely-tags"})
+MAX_LABEL = 100
 
 
 class _MetaParser(HTMLParser):
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self.meta: dict[str, str] = {}
+        self.labels: list[str] = []  # the outlet's section / topic labels
         self.jsonld: list[str] = []
         self._in_jsonld = False
         self._buf: list[str] = []
@@ -67,6 +75,8 @@ class _MetaParser(HTMLParser):
             key = (a.get("property") or a.get("name") or "").lower()
             if key and "content" in a:
                 self.meta.setdefault(key, a["content"])
+                if key in LABEL_META:
+                    self.labels.extend(_split_list(a["content"], key in LIST_META))
         elif tag == "script" and a.get("type", "").lower() == "application/ld+json":
             self._in_jsonld = True
             self._buf = []
@@ -79,6 +89,41 @@ class _MetaParser(HTMLParser):
         if tag == "script" and self._in_jsonld:
             self.jsonld.append("".join(self._buf))
             self._in_jsonld = False
+
+
+def _split_list(value: str, is_list: bool) -> list[str]:
+    parts = value.split(",") if is_list else [value]
+    return [p.strip()[:MAX_LABEL] for p in parts if p.strip()]
+
+
+def section_labels(html: str) -> list[str]:
+    """The outlet's own section and topic labels for the article, from the page's
+    metadata: article:section / article:tag, news_keywords, Parse.ly's, and schema.org
+    articleSection / keywords on the article object. In page order, without repeats."""
+    parser = _MetaParser()
+    with contextlib.suppress(Exception):  # malformed markup: use whatever was collected
+        parser.feed(html)
+        parser.close()
+    labels = list(parser.labels)
+    for block in parser.jsonld:
+        try:
+            objects = list(_walk(json.loads(block, strict=False)))
+        except ValueError:
+            continue
+        for obj in objects:
+            if not any(ARTICLE_TYPES.search(t) for t in _types(obj)):
+                continue
+            for field, is_list in (("articleSection", False), ("keywords", True)):
+                value = obj.get(field)
+                values = value if isinstance(value, list) else [value]
+                for v in values:
+                    if isinstance(v, str):
+                        labels.extend(_split_list(v, is_list))
+    out: list[str] = []
+    for label in labels:
+        if label not in out:
+            out.append(label)
+    return out
 
 
 def parse_timestamp(value: object) -> datetime | None:

@@ -36,6 +36,7 @@ def gkg_line(
     translation: str = "",
     image: str = "",
     n: int = 1,
+    v2themes: str = "",
 ) -> str:
     cols = [""] * 27
     cols[0] = f"{date}-{n}"
@@ -44,6 +45,7 @@ def gkg_line(
     cols[3] = "whatever.example"
     cols[4] = url
     cols[7] = "THEME_A;THEME_B" * 50  # GKG lines are long; make sure that's fine
+    cols[8] = v2themes
     cols[18] = image
     cols[25] = translation
     cols[26] = f"<PAGE_LINKS>x</PAGE_LINKS><PAGE_TITLE>{title}</PAGE_TITLE>" if title else ""
@@ -282,3 +284,11 @@ def test_sync_stores_other_domains(tmp_path: Path) -> None:
     sync_outlets(conn, [OutletConfig("ms.now", "MS NOW", "US", "en")], NOW)
     assert outlet_domains(conn)["ms.now"] == []  # removed from the list, removed here
     conn.close()
+
+
+def test_gdelt_themes_are_counted_per_mention() -> None:
+    # V2Themes: one "THEME,character offset" entry per mention in the article text
+    v2 = "ELECTION,120;ENV_CLIMATECHANGE,300;ELECTION,845;ELECTION,1290;bad theme,5;;"
+    line = gkg_line("https://www.cbc.ca/news/vote", v2themes=v2)
+    [record] = parse_lines(iter([line]), DomainMatcher(DOMAINS), translated=False)[0]
+    assert record.themes == (("ELECTION", 3), ("ENV_CLIMATECHANGE", 1))

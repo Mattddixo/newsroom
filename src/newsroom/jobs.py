@@ -170,6 +170,7 @@ def _publication_dates(
         datetime.now(UTC).replace(microsecond=0),
         limit=limit or settings.pubdate_per_run,
         max_age=timedelta(days=settings.pubdate_max_age_days),
+        tagger=Tagger(load_tags(settings.config_dir / "tags.yaml")),
     )
 
 

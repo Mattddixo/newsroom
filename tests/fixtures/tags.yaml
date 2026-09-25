@@ -1,10 +1,15 @@
+gdelt_min_mentions: 3
 tags:
   housing:
     label: Housing
-    keywords: [housing, logement]
+    gdelt: [ECON_HOUSING_PRICES, WB_2187_RENTAL_HOUSING]
+    sections: [housing, logement]
   economy:
     label: Economy
-    keywords: [interest rate, inflation]
+    gdelt: [ECON_INFLATION, ECON_INTEREST_RATES]
+    sections: [économie, economy]
   elections:
     label: Elections
-    keywords: [élection, election]
+    gdelt: [ELECTION]
+    gdelt_min_mentions: 2
+    sections: [elections]

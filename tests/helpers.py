@@ -19,9 +19,9 @@ OUTLETS = [
 ]
 
 TAGS = [
-    TagConfig("housing", "Housing", tuple(map(normalize_text, ["housing", "logement", "rent"]))),
-    TagConfig("elections", "Elections", tuple(map(normalize_text, ["election", "élection"]))),
-    TagConfig("economy", "Economy", tuple(map(normalize_text, ["interest rate", "inflation"]))),
+    TagConfig("housing", "Housing", ("ECON_HOUSING_PRICES",), ("housing", "logement")),
+    TagConfig("elections", "Elections", ("ELECTION",), ("elections",)),
+    TagConfig("economy", "Economy", ("ECON_INFLATION",), (normalize_text("économie"),)),
 ]
 
 
@@ -35,9 +35,21 @@ def make_db(path: Path, now: datetime) -> sqlite3.Connection:
     return conn
 
 
-def rec(url: str, title: str, when: datetime, domain: str = "cbc.ca") -> ArticleRecord:
+def rec(
+    url: str,
+    title: str,
+    when: datetime,
+    domain: str = "cbc.ca",
+    themes: tuple[tuple[str, int], ...] = (),
+) -> ArticleRecord:
     return ArticleRecord(
-        url=url, title=title, domain=domain, published_at=when, language="en", image_url=None
+        url=url,
+        title=title,
+        domain=domain,
+        published_at=when,
+        language="en",
+        image_url=None,
+        themes=themes,
     )
 
 

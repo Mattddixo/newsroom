@@ -32,8 +32,14 @@ def settings(tmp_path: Path) -> Settings:
             "https://cbc.ca/a",
             "Housing starts climb as interest rate falls",
             NOW - timedelta(hours=1),
+            themes=(("ECON_HOUSING_PRICES", 3), ("ECON_INFLATION", 3)),
         ),
-        rec("https://cbc.ca/b", "Byelection called in Toronto riding", NOW - timedelta(hours=3)),
+        rec(
+            "https://cbc.ca/b",
+            "Byelection called in Toronto riding",
+            NOW - timedelta(hours=3),
+            themes=(("ELECTION", 5),),
+        ),
         # 03:30 UTC on the 24th is 23:30 on the 23rd in Toronto: must group under the 23rd
         rec(
             "https://cbc.ca/c", "Late night council vote", datetime(2026, 9, 24, 3, 30, tzinfo=UTC)
@@ -43,6 +49,7 @@ def settings(tmp_path: Path) -> Settings:
             "Élection partielle à Montréal",
             NOW - timedelta(days=2),
             "radio-canada.ca",
+            themes=(("ELECTION", 4),),
         ),
         rec(
             "https://nytimes.com/e",
@@ -254,6 +261,8 @@ def test_outlets_and_owners_tables_sort(client: TestClient) -> None:
 def test_tag_and_outlet_links_keep_filters(client: TestClient) -> None:
     html = client.get("/", params={"country": "CA"}).text
     assert 'href="/?tag=housing&amp;country=CA"' in html
+    # each tag says where it came from
+    assert 'title="GDELT themes: ECON_HOUSING_PRICES (3)">Housing</a>' in html
     assert 'href="/outlet/cbc.ca"' in html
 
 
@@ -317,7 +326,12 @@ def test_new_articles_notice(settings: Settings, client: TestClient) -> None:
                 QueryResult(
                     "q",
                     [
-                        rec("https://cbc.ca/new1", "Fresh housing story", NOW),
+                        rec(
+                            "https://cbc.ca/new1",
+                            "Fresh housing story",
+                            NOW,
+                            themes=(("ECON_HOUSING_PRICES", 3),),
+                        ),
                         rec("https://cbc.ca/new2", "Another fresh story", NOW),
                     ],
                 )

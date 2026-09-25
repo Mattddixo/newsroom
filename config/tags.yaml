@@ -1,73 +1,108 @@
-# Keyword tags, matched against article titles (whole words, case- and
-# accent-insensitive). A title can get several tags. Multi-word phrases work.
-# After editing: docker compose exec worker newsroom retag
+# Topic tags. Each article gets its tags from one of two sources, in this order:
 #
-# DRAFT: English + French keywords for common topics. Edit to taste.
+#   gdelt:    GDELT's theme coding of the article's full text (GKG themes). The tag
+#             applies when these themes are mentioned at least gdelt_min_mentions times
+#             in total, so a passing mention doesn't count. Names must be exact; the
+#             full list: http://data.gdeltproject.org/api/v2/guides/LOOKUP-GKGTHEMES.TXT
+#   sections: the outlet's own section / topic labels on the article page (article:section,
+#             article:tag, articleSection...), for articles GDELT's themes give no tag.
+#             Whole labels, case- and accent-insensitive; "News > Health" counts as "health".
+#
+# After editing: docker compose exec worker newsroom retag
+# (Only themes listed here are stored with articles, so a theme added later applies to
+# new articles.)
+
+gdelt_min_mentions: 3
 
 tags:
   elections:
     label: Elections
-    keywords: [election, elections, electoral, ballot, ballots, voters, polling station,
-               by-election, byelection, primaries, caucus,
-               élection, élections, électoral, électeurs, scrutin, partielle]
+    gdelt: [ELECTION, ELECTION_FRAUD, WB_2475_ELECTORAL_SUPPORT_AND_MONITORING]
+    sections: [elections, election, federal election, provincial election, us election,
+               élections, élection, élections fédérales, élections provinciales]
   economy:
     label: Economy
-    keywords: [economy, economic, inflation, recession, gdp, interest rate, interest rates,
-               bank of canada, federal reserve, unemployment, jobs report,
-               économie, économique, récession, taux directeur, chômage]
+    gdelt: [EPU_ECONOMY, ECON_INFLATION, WB_442_INFLATION, ECON_INTEREST_RATES,
+            EPU_POLICY_INTEREST_RATES, EPU_POLICY_INTEREST_RATE, ECON_CENTRALBANK,
+            WB_1235_CENTRAL_BANKS, EPU_POLICY_CENTRAL_BANK, UNEMPLOYMENT, WB_2747_UNEMPLOYMENT,
+            ECON_STOCKMARKET, ECON_DEBT, ECON_BUDGET_DEFICIT, ECON_TAXATION, ECON_BANKRUPTCY]
+    sections: [economy, the economy, economics, inflation, interest rates, personal finance,
+               économie, finances personnelles]
   trade:
     label: Trade & tariffs
-    keywords: [tariff, tariffs, trade war, trade deal, cusma, usmca, nafta, exports, imports,
-               tarif, tarifs, droits de douane, libre-échange]
+    gdelt: [ECON_FREETRADE, ECON_TRADE_DISPUTE, EPU_CATS_TRADE_POLICY,
+            WB_775_TRADE_POLICY_AND_INTEGRATION, WB_776_TRADE_POLICY, WB_778_NON_TARIFF_MEASURES,
+            WB_1136_TRADE_BALANCE, ECON_DEVELOPMENTORGS_WORLD_TRADE_ORGANIZATION]
+    sections: [trade, tariffs, trade war, international trade,
+               commerce international, tarifs, droits de douane]
   housing:
     label: Housing
-    keywords: [housing, rent, rents, renters, mortgage, mortgages, homelessness, home prices,
-               logement, logements, loyer, loyers, hypothèque, itinérance]
+    gdelt: [ECON_HOUSING_PRICES, WB_612_HOUSING_FINANCE, WB_817_LAND_AND_HOUSING,
+            WB_904_HOUSING_MARKETS, WB_2186_SOCIAL_HOUSING, WB_870_HOUSING_CONSTRUCTION,
+            WB_2187_RENTAL_HOUSING, WB_1722_HOUSING_POLICY_AND_INSTITUTIONS,
+            WB_2188_AFFORDABLE_HOUSING_SUPPLY]
+    sections: [housing, real estate, homelessness, logement, immobilier, itinérance]
   climate:
     label: Climate & environment
-    keywords: [climate, emissions, carbon tax, carbon pricing, greenhouse, net zero, net-zero,
-               pollution, environment, environmental,
-               climat, climatique, émissions, carbone, environnement]
+    gdelt: [ENV_CLIMATECHANGE, WB_567_CLIMATE_CHANGE, UNGP_CLIMATE_CHANGE_ACTION,
+            WB_579_CLIMATE_CHANGE_MITIGATION, WB_601_POLLUTION_MANAGEMENT, WB_1791_AIR_POLLUTION,
+            ENV_DEFORESTATION, ENV_CARBONCAPTURE, WB_1845_CARBON_TAX, WB_1846_CARBON_PRICING,
+            ENV_SPECIESENDANGERED]
+    sections: [climate, climate change, environment, climate & environment,
+               climate and environment, climat, changements climatiques, environnement]
   wildfires:
     label: Wildfires
-    keywords: [wildfire, wildfires, forest fire, forest fires, evacuation order,
-               feu de forêt, feux de forêt, incendie de forêt, incendies de forêt]
+    gdelt: [NATURAL_DISASTER_WILDFIRE, NATURAL_DISASTER_WILDFIRES, NATURAL_DISASTER_FOREST_FIRE,
+            NATURAL_DISASTER_FOREST_FIRES, NATURAL_DISASTER_BUSHFIRE, NATURAL_DISASTER_BUSHFIRES,
+            WB_1714_WILDFIRES_RISK_REDUCTION]
+    sections: [wildfires, wildfire, forest fires, feux de forêt, incendies de forêt]
   energy:
     label: Energy
-    keywords: [oil, pipeline, pipelines, natural gas, lng, oilsands, oil sands, electricity,
-               nuclear power, renewable, renewables, solar, wind power,
-               pétrole, pipeline, gaz naturel, électricité, hydro-québec, énergie]
+    gdelt: [ENV_OIL, ENV_NATURALGAS, ENV_COAL, ENV_NUCLEARPOWER, ENV_SOLAR, ENV_WINDPOWER,
+            ENV_BIOFUEL, WB_525_RENEWABLE_ENERGY, WB_2299_PIPELINES, WB_1768_OIL_AND_GAS_PIPELINE,
+            ECON_ELECTRICALGENERATION, ECON_ELECTRICALGRID, ECON_ELECTRICALPRICE,
+            ECON_ELECTRICALDEMAND, FUELPRICES, ECON_OILPRICE, WB_509_NUCLEAR_ENERGY,
+            WB_528_SOLAR_ENERGY, WB_529_WIND_ENERGY, WB_533_ENERGY_EFFICIENCY]
+    sections: [energy, oil and gas, oil & gas, énergie, pétrole]
   health:
     label: Health
-    keywords: [health, hospital, hospitals, doctors, nurses, pharmacare, vaccine, vaccines,
-               measles, pandemic, outbreak, medicare, medicaid,
-               santé, hôpital, hôpitaux, médecins, infirmières, vaccin, rougeole]
+    gdelt: [GENERAL_HEALTH, WB_635_PUBLIC_HEALTH, UNGP_HEALTHCARE, EPU_CATS_HEALTHCARE,
+            WB_2167_PANDEMICS, HEALTH_PANDEMIC, HEALTH_VACCINATION, WB_2165_HEALTH_EMERGENCIES,
+            WB_1430_MENTAL_HEALTH, WB_1287_HEALTH_INSURANCE, WB_1305_HEALTH_SERVICES_DELIVERY,
+            TAX_DISEASE_OUTBREAK, TAX_DISEASE_EPIDEMIC, TAX_DISEASE_MEASLES]
+    sections: [health, health care, healthcare, public health, mental health, medicine,
+               santé, santé publique, santé mentale]
   immigration:
     label: Immigration
-    keywords: [immigration, immigrants, migrants, asylum, refugee, refugees, deportation,
-               deportations, border, visa, visas,
-               immigrants, demandeurs d'asile, réfugiés, frontière, expulsion]
+    gdelt: [IMMIGRATION, WB_2837_IMMIGRATION, REFUGEES, WB_2836_MIGRATION_POLICIES_AND_JOBS,
+            EPU_CATS_MIGRATION_FEAR_MIGRATION, DISCRIMINATION_IMMIGRATION,
+            WB_2665_REFUGEE_RESETTLEMENT, WB_2491_BORDER_SECURITY]
+    sections: [immigration, immigrants, refugees, immigrés, réfugiés]
   justice:
     label: Courts & justice
-    keywords: [supreme court, court, judge, trial, lawsuit, sentenced, verdict, charged,
-               cour suprême, tribunal, juge, procès, poursuite, condamné, accusé]
+    gdelt: [TRIAL, WB_1014_CRIMINAL_JUSTICE, WB_841_JUSTICE_SYSTEM_ADMINISTRATION,
+            WB_945_JUDICIAL_INDEPENDENCE, WB_1011_JUDICIAL_APPOINTMENTS, WB_942_ACCESS_TO_JUSTICE]
+    sections: [courts, court, justice, law, legal, courts & justice, law & justice,
+               tribunaux, justice et faits divers]
   indigenous:
     label: Indigenous affairs
-    keywords: [indigenous, first nation, first nations, métis, inuit, reconciliation,
-               residential school, residential schools, tribal, tribe,
-               autochtone, autochtones, premières nations, réconciliation, pensionnats]
+    gdelt: [WB_749_INDIGENOUS_PEOPLES, WB_2960_INDIGENOUS_PEOPLES, WB_1550_INDIGENOUS_EDUCATION,
+            TAX_ETHNICITY_INDIGENOUS, TAX_ETHNICITY_INUIT, TAX_ETHNICITY_INUITS,
+            TAX_ETHNICITY_NATIVE_AMERICAN, TAX_ETHNICITY_NATIVE_AMERICANS]
+    sections: [indigenous, indigenous news, first nations, autochtones, premières nations]
   labour:
     label: Labour
-    keywords: [strike, strikes, union, unions, lockout, collective agreement, minimum wage,
-               workers,
-               grève, grèves, syndicat, syndicats, convention collective, salaire minimum]
+    gdelt: [ECON_UNIONS, STRIKE, WB_1670_TRADE_UNIONS, WB_856_WAGES, WB_1671_MINIMUM_WAGES,
+            WB_1668_LABOR_STANDARDS]
+    sections: [labour, labor, unions, jobs, work, workplace, travail, syndicats, emploi]
   technology:
     label: Technology
-    keywords: [artificial intelligence, ai, tech, technology, cybersecurity, cyberattack,
-               data breach, social media, big tech,
-               intelligence artificielle, ia, technologie, cybersécurité, cyberattaque]
+    gdelt: [CYBER_ATTACK, WB_2457_CYBER_CRIME, TECH_AUTOMATION, TECH_BIGDATA, SOC_EMERGINGTECH,
+            SOC_TECHNOLOGYSECTOR, WB_2416_INTERNET_OF_THINGS]
+    sections: [technology, tech, science & tech, science and technology, sci-tech,
+               artificial intelligence, ai, technologie, techno, intelligence artificielle]
   media:
     label: Media
-    keywords: [journalism, journalist, journalists, newsroom, newspaper, broadcaster,
-               online news act, press freedom, media ownership,
-               journalisme, journaliste, journalistes, médias, radiodiffuseur]
+    gdelt: [MEDIA_CENSORSHIP, FREESPEECH, INTERNET_CENSORSHIP,
+            WB_2387_BROADCASTING_INDUSTRY_AND_MARKETS]
+    sections: [media, journalism, médias, journalisme]

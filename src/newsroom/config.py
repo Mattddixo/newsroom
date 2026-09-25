@@ -14,6 +14,7 @@ from newsroom.urls import is_http_url
 
 DOMAIN_RE = re.compile(r"^[a-z0-9-]+(\.[a-z0-9-]+)+$")
 SLUG_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
+THEME_RE = re.compile(r"^[A-Z0-9_]+$")
 
 
 class ConfigError(ValueError):
@@ -40,7 +41,13 @@ class OutletConfig:
 class TagConfig:
     slug: str
     label: str
-    keywords: tuple[str, ...]
+    # GDELT GKG theme names (exact, e.g. ENV_CLIMATECHANGE): GDELT's coding of the full
+    # article text. The tag applies when these themes are mentioned `min_mentions` times.
+    gdelt: tuple[str, ...] = ()
+    # The outlet's own section / topic names (normalized): used for articles GDELT's
+    # themes give no tag.
+    sections: tuple[str, ...] = ()
+    min_mentions: int = 3
 
 
 def _load(path: Path) -> object:
@@ -109,24 +116,40 @@ def load_tags(path: Path) -> list[TagConfig]:
     items = data.get("tags") if isinstance(data, dict) else None
     if not isinstance(items, dict):
         raise ConfigError(f"{path}: expected a top-level 'tags:' mapping")
+    default_min = data.get("gdelt_min_mentions", 3) if isinstance(data, dict) else 3
     tags: list[TagConfig] = []
     for slug, body in items.items():
         slug = str(slug)
+        where = f"{path.name} ({slug})"
         if not SLUG_RE.match(slug):
             raise ConfigError(f"{path.name}: invalid tag slug {slug!r}")
         if not isinstance(body, dict):
-            raise ConfigError(f"{path.name} ({slug}): expected label and keywords")
+            raise ConfigError(f"{where}: expected label, gdelt and sections")
+        if "keywords" in body:
+            raise ConfigError(f"{where}: 'keywords' is no longer used; use gdelt and sections")
         label = str(body.get("label", "")).strip()
-        keywords = body.get("keywords")
-        if not label or not isinstance(keywords, list) or not keywords:
-            raise ConfigError(f"{path.name} ({slug}): label and a non-empty keywords list required")
-        cleaned = tuple(k for k in (normalize_text(str(k)) for k in keywords) if k)
-        tags.append(TagConfig(slug, label, cleaned))
+        gdelt = body.get("gdelt", [])
+        sections = body.get("sections", [])
+        min_mentions = body.get("gdelt_min_mentions", default_min)
+        if not label:
+            raise ConfigError(f"{where}: label required")
+        if not isinstance(gdelt, list) or not isinstance(sections, list):
+            raise ConfigError(f"{where}: gdelt and sections must be lists")
+        if not gdelt and not sections:
+            raise ConfigError(f"{where}: needs gdelt themes or sections")
+        themes = tuple(str(t).strip() for t in gdelt)
+        bad = [t for t in themes if not THEME_RE.match(t)]
+        if bad:
+            raise ConfigError(f"{where}: not a GDELT theme name: {bad[0]!r}")
+        if not isinstance(min_mentions, int) or isinstance(min_mentions, bool) or min_mentions < 1:
+            raise ConfigError(f"{where}: gdelt_min_mentions must be a whole number >= 1")
+        cleaned = tuple(k for k in (normalize_text(str(k)) for k in sections) if k)
+        tags.append(TagConfig(slug, label, themes, cleaned, min_mentions))
     return tags
 
 
 def normalize_text(text: str) -> str:
-    """Casefold, strip accents, collapse whitespace. Used for keyword matching."""
+    """Casefold, strip accents, collapse whitespace. Used for section matching."""
     decomposed = unicodedata.normalize("NFKD", text.casefold())
     stripped = "".join(c for c in decomposed if not unicodedata.combining(c))
     return " ".join(stripped.split())

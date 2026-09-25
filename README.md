@@ -149,9 +149,13 @@ for Tailscale at boot.
 ## What gets ingested
 
 **Outlets** come from `config/outlets.yaml`, a draft list of about 75 Canadian and US outlets
-for you to edit. **Tags** come from `config/tags.yaml`: keyword lists, in English and French,
-matched against headlines as whole words, ignoring case and accents. Both files are mounted
-into the worker, so you can edit them with `micro` without rebuilding the image:
+for you to edit. **Tags** come from `config/tags.yaml`. Each tag lists GDELT themes (GDELT's
+coding of the full article text; the tag applies when they're mentioned `gdelt_min_mentions`
+times) and the outlet section labels that mean the same topic (read from the article page's
+metadata, used when GDELT's themes give no tag). Each tag records where it came from, shown
+on hover. Only theme names and labels are stored, so `make retag` recomputes tags after an
+edit. Both files are mounted into the worker, so you can edit them with `micro` without
+rebuilding the image:
 
 ```bash
 micro config/outlets.yaml

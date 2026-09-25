@@ -5,7 +5,8 @@ Limits that keep this reasonable for the outlets:
     (one retry after a transient failure), newest first
   - at most `limit` pages per run (default 150), one request at a time, >= 1 s apart
   - robots.txt obeyed; a host that answers 403/429/5xx is left alone for the rest of the run
-  - only the first ~1.5 MB of a page is read and only the date is kept
+  - only the first ~1.5 MB of a page is read; only the date and the outlet's section
+    labels (for topic tags, see services/tagging.py) are kept
 """
 
 from __future__ import annotations
@@ -19,7 +20,15 @@ from datetime import UTC, datetime, timedelta
 
 from newsroom.net.safe_fetch import FetchBlocked, FetchResult
 from newsroom.services.ingest import parse_ts, ts
-from newsroom.sources.pubdate import DISALLOWED, UNAVAILABLE, DateConflict, Robots, extract
+from newsroom.services.tagging import Tagger, encode_sections, tag_article, tag_ids
+from newsroom.sources.pubdate import (
+    DISALLOWED,
+    UNAVAILABLE,
+    DateConflict,
+    Robots,
+    extract,
+    section_labels,
+)
 from newsroom.urls import host_of
 
 log = logging.getLogger(__name__)
@@ -55,12 +64,13 @@ def refresh_pub_dates(
     sleep: Callable[[float], None] = time.sleep,
     clock: Callable[[], float] = time.monotonic,
     wall_clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+    tagger: Tagger | None = None,
 ) -> PubDateSummary:
     """Check up to `limit` recent undated articles, newest first. Each article is stamped
     with the moment it was checked (the feed shows new articles from then on)."""
     summary = PubDateSummary()
     rows = conn.execute(
-        "SELECT a.id, a.url, a.published_at, o.domain FROM articles a"
+        "SELECT a.id, a.url, a.published_at, a.gdelt_themes, o.domain FROM articles a"
         " JOIN outlets o ON o.id = a.outlet_id"
         " WHERE a.outlet_published_at IS NULL AND a.pubdate_attempts < ?"
         " AND a.published_at >= ?"
@@ -70,6 +80,7 @@ def refresh_pub_dates(
     ).fetchall()
     skip_hosts: set[str] = set()
     last_request: float | None = None
+    ids = tag_ids(conn) if tagger else {}
 
     def record(article_id: int, attempts: str, when: str | None, method: str | None) -> None:
         conn.execute(
@@ -111,7 +122,13 @@ def refresh_pub_dates(
                 summary.hosts_skipped += 1
                 log.info("leaving host alone this run", extra={"host": host, "status": exc.status})
             continue
-        found = extract(page.body.decode("utf-8", errors="replace"), parse_ts(row["published_at"]))
+        html = page.body.decode("utf-8", errors="replace")
+        if tagger:
+            # The outlet's own section labels: topic tags when GDELT's themes give none.
+            sections = encode_sections(section_labels(html))
+            conn.execute("UPDATE articles SET sections = ? WHERE id = ?", (sections, row["id"]))
+            tag_article(conn, tagger, row["id"], row["gdelt_themes"], sections, ids)
+        found = extract(html, parse_ts(row["published_at"]))
         if isinstance(found, DateConflict):
             # The page's tags disagree about the time zone: no telling which is right.
             summary.conflicting += 1

@@ -21,9 +21,8 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from newsroom.config import OutletConfig
-from newsroom.services.tagging import Tagger, tag_article, tag_ids
+from newsroom.services.tagging import Tagger, encode_themes, tag_article, tag_ids
 from newsroom.sources.base import ArticleSource, QueryResult
-from newsroom.sources.pubdate import FUTURE_SKEW
 from newsroom.urls import canonical_key
 
 log = logging.getLogger(__name__)
@@ -318,12 +317,13 @@ def _store(
             if outlet_id is None:
                 continue
             stated = ts(rec.outlet_published_at) if rec.outlet_published_at else None
+            themes = encode_themes(dict(rec.themes), tagger.themes)
             key = canonical_key(rec.url)
             cur = conn.execute(
                 "INSERT INTO articles (url, url_key, title, outlet_id, published_at,"
                 " language, image_url, source, source_url, retrieved_at,"
-                " outlet_published_at, pubdate_method, pubdate_checked_at)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                " outlet_published_at, pubdate_method, pubdate_checked_at, gdelt_themes)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
                 " ON CONFLICT (url_key) DO NOTHING",
                 (
                     rec.url,
@@ -339,29 +339,21 @@ def _store(
                     stated,
                     rec.pubdate_method if stated else None,
                     retrieved if stated else None,  # dated by its source: nothing to check
+                    themes,
                 ),
             )
             if cur.rowcount == 1:
                 summary.inserted += 1
-                tag_article(conn, tagger, cur.lastrowid or 0, rec.title, ids)
-            elif rec.outlet_published_at:
-                # Already stored (e.g. from GDELT) without a date: take the source's, if
-                # it's plausible for when the article was *first* seen. (A feed is read
-                # again every run; a time in the future, rejected the first time, would
-                # otherwise be accepted hours later, once it has passed.)
-                conn.execute(
-                    "UPDATE articles SET outlet_published_at = ?, pubdate_method = ?,"
-                    " pubdate_checked_at = coalesce(pubdate_checked_at, ?)"
-                    " WHERE url_key = ? AND outlet_published_at IS NULL"
-                    " AND published_at >= ?",
-                    (
-                        stated,
-                        rec.pubdate_method,
-                        retrieved,
-                        key,
-                        ts(rec.outlet_published_at - FUTURE_SKEW),
-                    ),
-                )
+                tag_article(conn, tagger, cur.lastrowid or 0, themes, "", ids)
+            elif themes:
+                # Already stored (e.g. from an outlet's feed) without GDELT's themes.
+                row = conn.execute(
+                    "UPDATE articles SET gdelt_themes = ? WHERE url_key = ? AND gdelt_themes = ''"
+                    " RETURNING id, sections",
+                    (themes, key),
+                ).fetchone()
+                if row:
+                    tag_article(conn, tagger, row["id"], themes, row["sections"], ids)
         _progress(conn, summary)  # same transaction: counts match what is saved
         conn.execute("COMMIT")
     except Exception:

@@ -65,15 +65,38 @@ def test_outlet_validation(tmp_path: Path, body: str, message: str) -> None:
         load_outlets(path)
 
 
-def test_tag_matching() -> None:
+def test_tags_from_gdelt_themes_and_outlet_sections() -> None:
     path = Path(__file__).parent / "fixtures" / "tags.yaml"
     tagger = Tagger(load_tags(path))
-    assert tagger.match("Housing crisis deepens") == {"housing": "housing"}
-    assert tagger.match("Crise du LOGEMENT à Québec") == {"housing": "logement"}
-    assert tagger.match("Warehousing jobs") == {}  # whole words only
-    assert tagger.match("Bank of  Canada holds interest   rate") == {"economy": "interest rate"}
-    assert tagger.match("Élection partielle") == {"elections": "election"}
-    assert set(tagger.match("Election brings housing pledge")) == {"elections", "housing"}
+    # GDELT: the tag's themes must come up often enough in the text (3; elections 2)
+    found = tagger.from_themes({"ECON_HOUSING_PRICES": 2, "WB_2187_RENTAL_HOUSING": 1})
+    assert found == {"housing": "GDELT themes: ECON_HOUSING_PRICES (2), WB_2187_RENTAL_HOUSING (1)"}
+    assert tagger.from_themes({"ECON_INFLATION": 2}) == {}  # a passing mention
+    assert tagger.from_themes({"ELECTION": 2}) == {"elections": "GDELT themes: ELECTION (2)"}
+    assert tagger.from_themes({"TAX_FNCACT_MAYOR": 9}) == {}  # not a tag's theme
+    # the outlet's own labels: whole labels, parts of a path, any case or accent
+    assert tagger.from_sections(["News > Housing"]) == {"housing": "Outlet's section: Housing"}
+    assert tagger.from_sections(["ECONOMIE"]) == {"economy": "Outlet's section: ECONOMIE"}
+    assert tagger.from_sections(["Housing market outlook"]) == {}  # not a whole label
+    # GDELT first; the outlet's sections only when GDELT's themes give no tag
+    assert set(tagger.match({"ELECTION": 5}, ["Housing"])) == {"elections"}
+    assert set(tagger.match({"ELECTION": 1}, ["Housing"])) == {"housing"}
+
+
+@pytest.mark.parametrize(
+    ("body", "message"),
+    [
+        ("tags:\n  x:\n    label: X\n    keywords: [a]\n", "no longer used"),
+        ("tags:\n  x:\n    label: X\n", "needs gdelt themes or sections"),
+        ("tags:\n  x:\n    label: X\n    gdelt: [climate change]\n", "not a GDELT theme"),
+        ("tags:\n  x:\n    label: X\n    gdelt: [ELECTION]\n    gdelt_min_mentions: 0\n", ">= 1"),
+    ],
+)
+def test_tag_validation(tmp_path: Path, body: str, message: str) -> None:
+    path = tmp_path / "tags.yaml"
+    path.write_text(body)
+    with pytest.raises(ConfigError, match=message):
+        load_tags(path)
 
 
 def test_normalize_text() -> None:

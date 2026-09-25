@@ -159,7 +159,7 @@ class Article:
     logo_path: str | None = None
     language: str | None = None
     date_kind: str = "seen"  # "published" (from the article page) | "seen" (GDELT)
-    tags: list[tuple[str, str]] = field(default_factory=list)  # (slug, label)
+    tags: list[tuple[str, str, str]] = field(default_factory=list)  # (slug, label, evidence)
 
 
 @dataclass
@@ -413,13 +413,13 @@ def _attach_tags(conn: sqlite3.Connection, articles: list[Article]) -> None:
     by_id = {a.id: a for a in articles}
     placeholders = ",".join("?" * len(by_id))
     rows = conn.execute(
-        "SELECT at.article_id, t.slug, t.label FROM article_tags at"  # noqa: S608
+        "SELECT at.article_id, t.slug, t.label, at.matched FROM article_tags at"  # noqa: S608
         f" JOIN tags t ON t.id = at.tag_id WHERE at.article_id IN ({placeholders})"
         " ORDER BY t.label",
         list(by_id),
     )
     for r in rows:
-        by_id[r["article_id"]].tags.append((r["slug"], r["label"]))
+        by_id[r["article_id"]].tags.append((r["slug"], r["label"], r["matched"] or ""))
 
 
 def filter_options(conn: sqlite3.Connection) -> dict[str, list[sqlite3.Row]]:

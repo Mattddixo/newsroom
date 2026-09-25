@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -37,10 +38,19 @@ def test_inserts_dedups_and_tags(conn: sqlite3.Connection) -> None:
             QueryResult(
                 "https://api/1",
                 [
-                    rec("https://www.cbc.ca/news/a", "Housing plan and election talk", T),
+                    rec(
+                        "https://www.cbc.ca/news/a",
+                        "Housing plan and election talk",
+                        T,
+                        themes=(("ECON_HOUSING_PRICES", 4), ("ELECTION", 3), ("TAX_X", 9)),
+                    ),
                     rec("https://cbc.ca/news/a/?utm_source=x", "Housing plan (dup)", T),
                     rec(
-                        "https://ici.radio-canada.ca/n/1", "Crise du logement", T, "radio-canada.ca"
+                        "https://ici.radio-canada.ca/n/1",
+                        "Crise du logement",
+                        T,
+                        "radio-canada.ca",
+                        themes=(("ECON_HOUSING_PRICES", 1),),  # in passing: no tag
                     ),
                     rec("https://unknown.example/x", "Not an outlet", T, "unknown.example"),
                 ],
@@ -65,10 +75,11 @@ def test_inserts_dedups_and_tags(conn: sqlite3.Connection) -> None:
         " ORDER BY a.id, t.slug"
     ).fetchall()
     assert [(r["slug"], r["matched"]) for r in tags] == [
-        ("elections", "election"),
-        ("housing", "housing"),
-        ("housing", "logement"),
+        ("elections", "GDELT themes: ELECTION (3)"),
+        ("housing", "GDELT themes: ECON_HOUSING_PRICES (4)"),
     ]
+    # only themes some tag uses are kept (names and counts, no text)
+    assert row["gdelt_themes"] == "ECON_HOUSING_PRICES:4 ELECTION:3"
 
     # Running again with the same data changes nothing (idempotent).
     again = run_ingest(conn, source, Tagger(TAGS), now=NOW + timedelta(hours=1))
@@ -160,15 +171,27 @@ def test_outlet_sync_deactivates_removed(conn: sqlite3.Connection) -> None:
 
 
 def test_retag_all(conn: sqlite3.Connection) -> None:
-    run_ingest(
-        conn,
-        FakeSource([QueryResult("u", [rec("https://cbc.ca/1", "Interest rate cut", T)])]),
-        Tagger([]),
-        now=NOW,
-    )
-    assert count(conn, "article_tags") == 0
+    strict = [replace(t, min_mentions=10) for t in TAGS]
+    article = rec("https://cbc.ca/1", "Rates", T, themes=(("ECON_INFLATION", 4),))
+    run_ingest(conn, FakeSource([QueryResult("u", [article])]), Tagger(strict), now=NOW)
+    assert count(conn, "article_tags") == 0  # 4 mentions < 10
+    # tags.yaml relaxed: recomputed from the stored themes, no refetching
     assert retag_all(conn, Tagger(TAGS)) == 1
     assert count(conn, "article_tags") == 1
+
+
+def test_gdelt_themes_reach_an_article_a_feed_brought_first(conn: sqlite3.Connection) -> None:
+    feed = rec("https://cbc.ca/2", "Vote", T)
+    run_ingest(conn, FakeSource([QueryResult("f", [feed])]), Tagger(TAGS), now=NOW)
+    conn.execute("UPDATE articles SET sections = 'Housing'")
+    run_ingest(conn, FakeSource([QueryResult("f", [feed])]), Tagger(TAGS), now=NOW)
+    assert [r[0] for r in conn.execute("SELECT matched FROM article_tags")] == []
+    later = rec("https://cbc.ca/2", "Vote", T, themes=(("ELECTION", 6),))
+    run_ingest(conn, FakeSource([QueryResult("g", [later])]), Tagger(TAGS), now=NOW)
+    # GDELT's themes come first: the outlet's "Housing" section no longer decides
+    assert [r[0] for r in conn.execute("SELECT matched FROM article_tags")] == [
+        "GDELT themes: ELECTION (6)"
+    ]
 
 
 def test_prune(conn: sqlite3.Connection) -> None:

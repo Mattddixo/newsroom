@@ -15,7 +15,13 @@ from newsroom.services.pubdates import ZONE_CONFLICT, audit_dates, refresh_pub_d
 from newsroom.services.tagging import Tagger
 from newsroom.settings import Settings
 from newsroom.sources.base import QueryResult
-from newsroom.sources.pubdate import DateConflict, Robots, extract, parse_timestamp
+from newsroom.sources.pubdate import (
+    DateConflict,
+    Robots,
+    extract,
+    parse_timestamp,
+    section_labels,
+)
 from newsroom.web.app import create_app
 from tests.helpers import TAGS, FakeSource, make_db, rec
 
@@ -391,7 +397,12 @@ def test_job_wiring_limits_each_request(
 
     monkeypatch.setattr(jobs, "safe_fetch", fake_safe_fetch)
     monkeypatch.setattr(jobs, "_ROBOTS_CACHE", {})
-    settings = Settings(data_dir=tmp_path, contact_email="x@example.org", pubdate_per_run=3)
+    settings = Settings(
+        data_dir=tmp_path,
+        config_dir=Path(__file__).parents[1] / "config",
+        contact_email="x@example.org",
+        pubdate_per_run=3,
+    )
     summary = jobs._publication_dates(settings, conn)
     assert summary is not None and summary.found == 3  # per-run cap
     pages = [c for c in calls if not c["url"].endswith("/robots.txt")]
@@ -498,3 +509,50 @@ def test_date_audit_flags_dates_hours_before_first_seen(conn: sqlite3.Connection
     cbc_feed = rows[("cbc.ca", "feed")]
     assert cbc_feed.median_lag == timedelta(minutes=12) and cbc_feed.early == 0
     assert rows[("cbc.ca", "page")].zone_conflicts == 1  # the old article is outside 7 days
+
+
+def test_section_labels_from_page_metadata() -> None:
+    html = """<head>
+      <meta property="article:section" content="Politics">
+      <meta property="article:tag" content="Housing">
+      <meta property="article:tag" content="Toronto">
+      <meta name="news_keywords" content="rent, Housing , mortgages">
+      <script type="application/ld+json">[
+        {"@type": "WebSite", "keywords": "site-wide, junk"},
+        {"@type": "NewsArticle", "articleSection": ["News", "Canada/Health"],
+         "keywords": "vaccines,Politics"}
+      ]</script></head>"""
+    assert section_labels(html) == [
+        "Politics",
+        "Housing",
+        "Toronto",
+        "rent",
+        "mortgages",
+        "News",
+        "Canada/Health",
+        "vaccines",
+    ]  # the WebSite object's keywords aren't the article's
+
+
+def test_page_check_tags_from_outlet_sections(conn: sqlite3.Connection) -> None:
+    html = (
+        '<meta property="article:published_time" content="2026-09-24T02:00:00Z">'
+        '<meta property="article:section" content="News > Housing">'
+    )
+    refresh_pub_dates(
+        conn,
+        lambda url, d: html_result(url, html),
+        Robots(lambda u: ""),
+        NOW,
+        limit=1,
+        sleep=lambda x: None,
+        tagger=Tagger(TAGS),
+    )
+    one = row(conn, "https://cbc.ca/news/1")
+    assert one["sections"] == "News > Housing"
+    tags = conn.execute(
+        "SELECT t.slug, at.matched FROM article_tags at JOIN tags t ON t.id = at.tag_id"
+        " WHERE at.article_id = ?",
+        (one["id"],),
+    ).fetchall()
+    assert [tuple(t) for t in tags] == [("housing", "Outlet's section: Housing")]
