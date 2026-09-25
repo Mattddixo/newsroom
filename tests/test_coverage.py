@@ -14,6 +14,7 @@ from newsroom.sources.gdelt_files import scan_hosts, slot_url
 from tests.test_gdelt_files import Files, gkg_line, gkg_zip
 
 OUTLETS = {
+    "latimes.com": ("Los Angeles Times", []),
     "ms.now": ("MS NOW", ["msnbc.com"]),
     "washingtonpost.com": ("The Washington Post", []),
     "cbc.ca": ("CBC News", []),
@@ -36,7 +37,8 @@ def test_report_says_what_to_do_for_each_outlet() -> None:
         "www.cbc.ca": 10,
         "notcbc.ca": 2,  # ignored: "cbc" is too short to look for look-alikes
         "www.saltwire.com": 3,  # not named like the Herald, so not suggested
-        "washingtonpost-live.example": 4,
+        "washingtonpost.example": 4,
+        "www.manilatimes.net": 9,  # contains "latimes" but isn't named like it
         "www.nytimes.com": 7,  # not one of these outlets
     }
     rows = {r.domain: r for r in build_report(OUTLETS, hosts, {"cbc.ca": 50})}
@@ -45,10 +47,11 @@ def test_report_says_what_to_do_for_each_outlet() -> None:
     assert rows["ms.now"].hosts == {"www.ms.now": 5, "www.msnbc.com": 1}
     assert rows["cbc.ca"].in_gdelt == 10 and rows["cbc.ca"].stored_7d == 50
     assert rows["washingtonpost.com"].verdict == "check look-alikes"
-    assert rows["washingtonpost.com"].lookalikes == [("washingtonpost-live.example", 4)]
+    assert rows["washingtonpost.com"].lookalikes == [("washingtonpost.example", 4)]
     assert rows["thechronicleherald.ca"].verdict == "not in GDELT's files"
+    assert rows["latimes.com"].lookalikes == []
     order = [r.domain for r in build_report(OUTLETS, hosts, {})]
-    assert order[:2] == ["thechronicleherald.ca", "washingtonpost.com"]  # problems first
+    assert order[:3] == ["latimes.com", "thechronicleherald.ca", "washingtonpost.com"]
 
 
 def test_scan_counts_hosts_and_skips_missing_files(tmp_path: Path) -> None:

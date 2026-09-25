@@ -67,7 +67,9 @@ def build_report(
             unclaimed[host] = n
     for d, (_, others) in outlets.items():
         tokens = name_tokens(d, others)
-        similar = [(h, n) for h, n in unclaimed.items() if any(t in h for t in tokens)]
+        # The name must be a whole part of the address (politico.eu, lesoleil.sn), not a
+        # fragment of another word (latimes in manilatimes, time in timesofindia).
+        similar = [(h, n) for h, n in unclaimed.items() if tokens & set(h.split("."))]
         similar.sort(key=lambda hn: (-hn[1], hn[0]))
         report[d].lookalikes = similar[:LOOKALIKES_SHOWN]
     order = {"not in GDELT's files": 0, "check look-alikes": 1, "carried": 2}
