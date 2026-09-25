@@ -20,11 +20,11 @@
 </dl>
 
 <h2 id="articles">Articles</h2>
-<p>Headlines come from the GDELT Project and are updated every {{ interval }} minutes. Only the headline, link, outlet, language and date are kept, never the article text. Links go straight to the outlet. Times are in {{ request.app.state.settings.timezone }}. Topic tags are based on keywords in the headline.</p>
+<p>Headlines come from the GDELT Project and, for outlets GDELT doesn't carry, from the outlet's own RSS feed. Both are checked every {{ interval }} minutes. Only the headline, link, outlet, language and date are kept, never the article text. Links go straight to the outlet. Times are in {{ request.app.state.settings.timezone }}. Topic tags are based on keywords in the headline. A few outlets are in neither source; their page says so.</p>
 <p>Some outlets publish far more than others, often because they also run wire stories. So the feed shows at most {{ cap }} articles per outlet per hour, and tells you how many it left out. Choose <strong>Show: Everything</strong> to see them all. An outlet's own page and the outlet filter always show everything.</p>
 
 <h3 id="dates">Dates</h3>
-<p>GDELT only records when it found an article, so the site checks each new article's page for its publication date, the same date search engines use. Only the date is kept. New articles appear once their date has been checked, usually within a minute of being collected, so they show the right time from the start. Each page is checked at most twice, and each site's robots.txt is respected.</p>
+<p>An outlet's RSS feed states when each article was published, and that time is used. GDELT only records when it found an article, so for those the site checks each new article's page for its publication date, the same date search engines use. Only the date is kept. New articles appear once their date has been checked, usually within a minute of being collected, so they show the right time from the start. Each page is checked at most twice, and each site's robots.txt is respected.</p>
 
 <h2 id="ownership">Ownership</h2>
 <p>Each outlet is matched to its Wikidata entry by its website, and the outlet page says how the match was made. From there the site follows "owned by" and "parent organization" upward, up to ten levels. Only current records are used, and ownership is rechecked weekly. Any link added by hand is labelled and cites its own source.</p>
@@ -49,6 +49,7 @@
 <h2 id="sources">Sources</h2>
 <ul>
   <li><a href="https://www.gdeltproject.org/" target="_blank" rel="noopener noreferrer">The GDELT Project</a>: headlines.</li>
+  <li>Outlets' own RSS feeds: headlines from outlets GDELT doesn't carry.</li>
   <li><a href="https://www.wikidata.org/" target="_blank" rel="noopener noreferrer">Wikidata</a>: ownership (<a href="https://creativecommons.org/publicdomain/zero/1.0/" target="_blank" rel="noopener noreferrer">CC0</a>). Thanks to its contributors.</li>
   <li><a href="https://commons.wikimedia.org/" target="_blank" rel="noopener noreferrer">Wikimedia Commons</a>: logos. Each outlet page links to the logo's licence.</li>
   <li><a href="https://www.sec.gov/edgar" target="_blank" rel="noopener noreferrer">SEC EDGAR</a>: public company filings.</li>

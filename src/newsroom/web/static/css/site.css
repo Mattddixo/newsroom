@@ -642,3 +642,12 @@ table.data .num {
 :target {
   scroll-margin-top: 1rem;
 }
+
+.note {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.small {
+  font-size: 0.8rem;
+}

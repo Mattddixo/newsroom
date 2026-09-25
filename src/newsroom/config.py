@@ -29,6 +29,11 @@ class OutletConfig:
     # Other domains the outlet publishes articles on (a rebrand, a second site). Articles
     # on these count as this outlet's; subdomains are included as for `domain`.
     also: tuple[str, ...] = ()
+    # The outlet's own RSS/Atom feeds: a second article source (for outlets GDELT doesn't
+    # carry). Only items linking to the outlet's own domains are kept.
+    feeds: tuple[str, ...] = ()
+    # Shown on the outlet page, e.g. why no articles are available. Plain text.
+    note: str = ""
 
 
 @dataclass(frozen=True)
@@ -83,9 +88,19 @@ def load_outlets(path: Path) -> list[OutletConfig]:
             # belong to two outlets whichever order they're in.
             if alias in seen or alias == domain or also.count(alias) > 1:
                 raise ConfigError(f"{where} ({domain}): {alias} is listed twice")
+        raw_feeds = item.get("feeds", [])
+        if not isinstance(raw_feeds, list):
+            raise ConfigError(f"{where} ({domain}): 'feeds' must be a list of URLs")
+        feeds = tuple(str(f).strip() for f in raw_feeds)
+        for feed in feeds:
+            if not is_http_url(feed):
+                raise ConfigError(f"{where} ({domain}): invalid feed URL {feed!r}")
+        note = " ".join(str(item.get("note", "") or "").split())
+        if len(note) > 300:
+            raise ConfigError(f"{where} ({domain}): note is longer than 300 characters")
         seen.add(domain)
         seen.update(also)
-        outlets.append(OutletConfig(domain, name, country, language, also))
+        outlets.append(OutletConfig(domain, name, country, language, also, feeds, note))
     return outlets
 
 

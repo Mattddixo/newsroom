@@ -61,7 +61,14 @@ def run_ingest(settings: Settings) -> None:
     except Exception:
         log.exception("ingest failed")
         return
-    if summary.inserted:
+    inserted = summary.inserted
+    try:
+        inserted += jobs.ingest_feeds(settings, wait=INGEST_WAIT).inserted
+    except IngestBusy:
+        log.warning("feeds skipped: another ingest held the lock for 30 minutes")
+    except Exception:
+        log.exception("feeds failed")
+    if inserted:
         # Date the new articles straight away, so the feed can show them with their
         # publication time (it holds new articles back until they've been checked).
         run_pubdates(settings)

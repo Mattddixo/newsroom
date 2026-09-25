@@ -32,6 +32,18 @@ def test_shipped_config_is_valid() -> None:
         ),
         ("outlets: [", "invalid YAML"),
         ("outlets:\n  - {domain: a.ca, name: X, country: CA, language: en, also: b.ca}", "list"),
+        ("outlets:\n  - {domain: a.ca, name: X, country: CA, language: en, feeds: x}", "list"),
+        (
+            "outlets:\n  - {domain: a.ca, name: X, country: CA, language: en,"
+            " feeds: [javascript:alert(1)]}",
+            "feed URL",
+        ),
+        (
+            "outlets:\n  - {domain: a.ca, name: X, country: CA, language: en, note: '"
+            + "x" * 301
+            + "'}",
+            "300",
+        ),
         ("outlets:\n  - {domain: a.ca, name: X, country: CA, language: en, also: [bad]}", "also"),
         ("outlets:\n  - {domain: a.ca, name: X, country: CA, language: en, also: [a.ca]}", "twice"),
         (

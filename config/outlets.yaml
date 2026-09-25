@@ -5,6 +5,9 @@
 #   language: ISO 639-1 (en, fr, ...)
 #   also:     optional list of other domains the outlet publishes articles on (after a
 #             rebrand, or a second site); articles there count as this outlet's
+#   feeds:    optional list of the outlet's own RSS/Atom feeds, read every 15 minutes as
+#             a second source (for outlets GDELT doesn't carry). Test with: make feeds
+#   note:     optional text shown on the outlet's page, e.g. why it has no articles
 # Removing an entry stops ingestion for it; its existing articles are kept.
 # Check your edits with: docker compose exec worker newsroom config check
 # See which outlets GDELT actually carries, and under which addresses: make coverage
@@ -50,12 +53,14 @@ outlets:
   - {domain: ledevoir.com,           name: Le Devoir,                 country: CA, language: fr}
   - {domain: journaldemontreal.com,  name: Le Journal de Montréal,    country: CA, language: fr}
   - {domain: journaldequebec.com,    name: Le Journal de Québec,      country: CA, language: fr}
-  - {domain: tvanouvelles.ca,        name: TVA Nouvelles,             country: CA, language: fr}
+  - {domain: tvanouvelles.ca,        name: TVA Nouvelles,             country: CA, language: fr,
+     feeds: [https://www.tvanouvelles.ca/rss.xml]}
   - {domain: lesoleil.com,           name: Le Soleil,                 country: CA, language: fr}
 
   # --- US: wires, national and broadcast ---
   - {domain: apnews.com,             name: Associated Press,          country: US, language: en}
-  - {domain: reuters.com,            name: Reuters,                   country: US, language: en}
+  - {domain: reuters.com,            name: Reuters,                   country: US, language: en,
+     note: "No articles: GDELT doesn't carry Reuters, and Reuters has published no public RSS feeds since June 2020."}
   - {domain: npr.org,                name: NPR,                       country: US, language: en}
   - {domain: pbs.org,                name: PBS News,                  country: US, language: en}
   - {domain: voanews.com,            name: Voice of America,          country: US, language: en}
@@ -69,8 +74,10 @@ outlets:
   - {domain: bloomberg.com,          name: Bloomberg,                 country: US, language: en}
 
   # --- US: newspapers and magazines ---
-  - {domain: nytimes.com,            name: The New York Times,        country: US, language: en}
-  - {domain: washingtonpost.com,     name: The Washington Post,       country: US, language: en}
+  - {domain: nytimes.com,            name: The New York Times,        country: US, language: en,
+     feeds: [https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml]}
+  - {domain: washingtonpost.com,     name: The Washington Post,       country: US, language: en,
+     feeds: [https://feeds.washingtonpost.com/rss/national, https://feeds.washingtonpost.com/rss/politics]}
   - {domain: wsj.com,                name: The Wall Street Journal,   country: US, language: en}
   - {domain: usatoday.com,           name: USA Today,                 country: US, language: en}
   - {domain: latimes.com,            name: Los Angeles Times,         country: US, language: en}
@@ -88,7 +95,8 @@ outlets:
   - {domain: newsweek.com,           name: Newsweek,                  country: US, language: en}
 
   # --- US: digital-native ---
-  - {domain: politico.com,           name: Politico,                  country: US, language: en}
+  - {domain: politico.com,           name: Politico,                  country: US, language: en,
+     feeds: [https://rss.politico.com/politics-news.xml]}
   - {domain: axios.com,              name: Axios,                     country: US, language: en}
   - {domain: thehill.com,            name: The Hill,                  country: US, language: en}
   - {domain: vox.com,                name: Vox,                       country: US, language: en}

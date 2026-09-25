@@ -45,11 +45,17 @@ def cmd_backup(_: argparse.Namespace) -> int:
 def cmd_ingest(_: argparse.Namespace) -> int:
     s = jobs.ingest_articles(get_settings())
     print(
-        f"Run {s.run_id}: {s.status}. Window {s.window_start:%Y-%m-%d %H:%M} to "
-        f"{s.window_end:%Y-%m-%d %H:%M} UTC. {s.queries} queries ({s.query_errors} failed), "
+        f"GDELT run {s.run_id}: {s.status}. Window {s.window_start:%Y-%m-%d %H:%M} to "
+        f"{s.window_end:%Y-%m-%d %H:%M} UTC. {s.queries} requests ({s.query_errors} failed), "
         f"{s.fetched} fetched, {s.inserted} new."
     )
-    return 0 if s.status == "ok" else 1
+    f = jobs.ingest_feeds(get_settings())
+    print(
+        f"Feeds run {f.run_id}: {f.status}. {f.queries} feeds ({f.query_errors} failed),"
+        f" {f.fetched} items for our outlets, {f.inserted} new."
+    )
+    feeds_ok = f.queries == 0 or f.status == "ok"
+    return 0 if s.status == "ok" and feeds_ok else 1
 
 
 def cmd_retag(_: argparse.Namespace) -> int:
@@ -118,6 +124,36 @@ def cmd_outlets_coverage(args: argparse.Namespace) -> int:
     print("    just be quiet (try --hours 24); a large one means GDELT doesn't carry it.")
     print("  check look-alikes: similar addresses exist that outlets.yaml doesn't list.")
     print("    If one is the outlet's own, add it under 'also:' in outlets.yaml.")
+    return 0
+
+
+def cmd_outlets_feeds(args: argparse.Namespace) -> int:
+    report = jobs.check_feeds(get_settings(), discover_all=args.all)
+    shown = [o for o in report if o.checks or o.gdelt_week < jobs.LOW_GDELT_WEEK]
+    for o in shown:
+        print(f"{o.name} ({o.domain}) - GDELT articles, last 7 days: {o.gdelt_week}")
+        for c in o.checks:
+            label = c.origin + (f' "{c.title}"' if c.title else "")
+            print(f"    [{label}] {c.url}")
+            if c.error:
+                print(f"        FAILED: {c.error}")
+            elif not c.on_site:
+                print(f"        NOT USABLE: {c.items} items, none link to the outlet's own site")
+            else:
+                newest = f"{c.newest:%Y-%m-%d %H:%M} UTC" if c.newest else "no dates"
+                print(
+                    f"        OK: {c.items} items, {c.on_site} link to the outlet,"
+                    f" {c.dated} dated, newest {newest}"
+                )
+        usable = [c.url for c in o.checks if c.usable]
+        if not o.checks:
+            print("    no feed configured, and the homepage declares none")
+        elif usable and any(c.origin == "discovered" for c in o.checks if c.usable):
+            print(f"    suggested for outlets.yaml:  feeds: [{', '.join(usable)}]")
+        print()
+    working = sum(1 for o in shown if any(c.usable for c in o.checks))
+    print(f"{working} of {len(shown)} outlets listed have a working feed.")
+    print("Nothing was changed. Add working feeds to config/outlets.yaml under 'feeds:'.")
     return 0
 
 
@@ -319,10 +355,18 @@ def cmd_status(_: argparse.Namespace) -> int:
         one = lambda sql: conn.execute(sql).fetchone()  # noqa: E731
         run = one(
             "SELECT status, started_at, finished_at, queries, inserted, query_errors"
-            " FROM ingest_runs"
+            " FROM ingest_runs WHERE source = 'gdelt'"
             " ORDER BY id DESC LIMIT 1"
         )
-        ok = one("SELECT max(finished_at) FROM ingest_runs WHERE status = 'ok'")[0]
+        feeds_run = one(
+            "SELECT status, finished_at, queries, inserted, query_errors, fetched"
+            " FROM ingest_runs WHERE source = 'feeds' AND status != 'running'"
+            " ORDER BY id DESC LIMIT 1"
+        )
+        feed_outlets = one("SELECT count(*) FROM outlets WHERE active = 1 AND feeds != ''")[0]
+        ok = one(
+            "SELECT max(finished_at) FROM ingest_runs WHERE source = 'gdelt' AND status = 'ok'"
+        )[0]
         arts = one("SELECT count(*), max(published_at) FROM articles")
         # "Up to date" = fetched through a recent run (two intervals, to allow for a run
         # in progress). Outlets never fetched without error have no cursor at all.
@@ -384,6 +428,14 @@ def cmd_status(_: argparse.Namespace) -> int:
                 f" {run['inserted']} new, {run['query_errors']} of {run['queries']} requests failed"
             )
     print(f"  last full run:   {ok or 'never'}")
+    if feeds_run:
+        print(
+            f"  outlet feeds:    {feeds_run['status']} at {feeds_run['finished_at']},"
+            f" {feeds_run['inserted']} new; {feeds_run['query_errors']} of"
+            f" {feeds_run['queries']} feeds failed ({feed_outlets} outlets have feeds)"
+        )
+    elif feed_outlets:
+        print(f"  outlet feeds:    not run yet ({feed_outlets} outlets have feeds)")
     print(f"  articles:        {arts[0]} (newest {arts[1] or '-'})")
     print(f"  outlets current: {active - len(behind)} of {active}")
     print(
@@ -511,6 +563,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     cov.add_argument("--hours", type=int, default=6, help="hours of files to read (1-48)")
     cov.set_defaults(func=cmd_outlets_coverage)
+    feeds = outlets.add_parser(
+        "feeds", help="test configured feeds; find feeds for outlets GDELT barely carries"
+    )
+    feeds.add_argument("--all", action="store_true", help="look for feeds for every outlet")
+    feeds.set_defaults(func=cmd_outlets_feeds)
     set_qid = outlets.add_parser("set-qid", help="pin an outlet to a Wikidata item")
     set_qid.add_argument("domain")
     set_qid.add_argument("qid", help="e.g. Q12345, or 'none' if no item exists")

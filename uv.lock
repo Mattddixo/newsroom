@@ -360,6 +360,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "apscheduler" },
+    { name = "defusedxml" },
     { name = "fastapi" },
     { name = "httpx" },
     { name = "jinja2" },
@@ -380,6 +381,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "apscheduler", specifier = ">=3.10,<4" },
+    { name = "defusedxml", specifier = ">=0.7.1" },
     { name = "fastapi" },
     { name = "httpx" },
     { name = "jinja2" },

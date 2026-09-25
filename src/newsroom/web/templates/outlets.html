@@ -11,7 +11,8 @@
   <tbody>
   {% for o, summary, counts in rows %}
   <tr>
-    <td><a href="/outlet/{{ o.domain }}">{% if o.logo_path %}<img class="logo" src="/logos/{{ o.logo_path }}" alt="" width="16" height="16" loading="lazy">{% endif %}{{ o.display_name }}</a></td>
+    <td><a href="/outlet/{{ o.domain }}">{% if o.logo_path %}<img class="logo" src="/logos/{{ o.logo_path }}" alt="" width="16" height="16" loading="lazy">{% endif %}{{ o.display_name }}</a>
+      {%- if o.note %}<br><span class="muted small">{{ o.note }}</span>{% endif %}</td>
     <td><a href="/?country={{ o.country }}" title="Articles from outlets in {{ o.country }}">{{ o.country }}</a></td>
     <td>{{ ownership_links(summary) }}</td>
     <td class="num">{{ counts[1] or 0 }}</td>

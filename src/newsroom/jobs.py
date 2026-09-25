@@ -5,18 +5,26 @@ from __future__ import annotations
 import logging
 import sqlite3
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 from newsroom.config import ConfigError, load_curated_funding, load_outlets, load_tags
 from newsroom.db import connect
-from newsroom.net.http import ApiClient
+from newsroom.net.http import ApiClient, ApiError
 from newsroom.net.safe_fetch import FetchBlocked, FetchResult, safe_fetch
-from newsroom.services import funding, ingest, ownership, pubdates
+from newsroom.services import feed_ingest, funding, ingest, ownership, pubdates
 from newsroom.services.coverage import build_report as coverage_report
 from newsroom.services.ingest import parse_ts, ts
 from newsroom.services.tagging import Tagger, retag_all, sync_tags
 from newsroom.settings import Settings
 from newsroom.sources import funding as funding_sources
+from newsroom.sources.feeds import (
+    FEED_TYPES,
+    MAX_FEED_BYTES,
+    discover_feeds,
+    feed_records,
+    parse_feed,
+)
 from newsroom.sources.gdelt import GdeltSource
 from newsroom.sources.gdelt_files import GkgFilesSource, scan_hosts, slots_between
 from newsroom.sources.pubdate import (
@@ -77,6 +85,63 @@ def ingest_articles(settings: Settings, *, wait: float = 0) -> ingest.RunSummary
         finally:
             client.close()
             conn.close()
+
+
+def ingest_feeds(settings: Settings, *, wait: float = 0) -> ingest.RunSummary:
+    """Read outlets' own RSS/Atom feeds (outlets.yaml `feeds:`). Same lock as ingestion."""
+    with ingest.ingest_lock(settings.lock_path("ingest"), wait, name="ingest"):
+        tagger = sync_config(settings)
+        conn = connect(settings.db_path)
+        try:
+            return feed_ingest.run_feeds(
+                conn,
+                _feed_fetcher(settings),
+                Robots(_robots_fetcher(settings, conn), cache=_ROBOTS_CACHE),
+                tagger,
+                max_age=timedelta(hours=settings.ingest_backfill_hours),
+            )
+        finally:
+            conn.close()
+
+
+def _feed_fetcher(settings: Settings) -> Callable[[str], bytes]:
+    """A feed comes from the host its URL names (set in outlets.yaml), nowhere else."""
+
+    def fetch(url: str) -> bytes:
+        return safe_fetch(
+            url,
+            allowlist=[host_of(url)],
+            allowed_types=FEED_TYPES | {"text/plain"},
+            max_bytes=MAX_FEED_BYTES,
+            timeout=20,
+            user_agent=settings.user_agent,
+        ).body
+
+    return fetch
+
+
+def _robots_fetcher(settings: Settings, conn: sqlite3.Connection) -> Callable[[str], str]:
+    """robots.txt from outlets' sites and their feed hosts."""
+    hosts = [d for main, others in ingest.outlet_domains(conn).items() for d in (main, *others)]
+    hosts += [
+        host_of(url)
+        for (feeds,) in conn.execute("SELECT feeds FROM outlets WHERE active = 1")
+        for url in feeds.split()
+    ]
+
+    def robots_text(url: str) -> str:
+        page = safe_fetch(
+            url,
+            allowlist=hosts,
+            allowed_types={"text/plain"},
+            max_bytes=500_000,
+            timeout=10,
+            user_agent=settings.user_agent,
+            truncate=True,
+        )
+        return page.body.decode("utf-8", errors="replace")
+
+    return robots_text
 
 
 HTML_TYPES = frozenset({"text/html", "application/xhtml+xml"})
@@ -342,3 +407,111 @@ def coverage(settings: Settings, hours: int) -> tuple[list, int, int]:
         client.close()
     outlets = {d: (names.get(d, d), others) for d, others in domains.items()}
     return coverage_report(outlets, counts, stored), files, len(slots)
+
+
+@dataclass
+class FeedCheck:
+    url: str
+    origin: str  # "configured" | "discovered"
+    title: str = ""
+    error: str = ""
+    items: int = 0
+    on_site: int = 0
+    dated: int = 0
+    newest: datetime | None = None
+
+    @property
+    def usable(self) -> bool:
+        return not self.error and self.on_site > 0
+
+
+@dataclass
+class OutletFeeds:
+    domain: str
+    name: str
+    gdelt_week: int
+    checks: list[FeedCheck]
+
+
+LOW_GDELT_WEEK = 5  # below this many GDELT articles in 7 days, look for a feed
+
+
+def check_feeds(settings: Settings, discover_all: bool = False) -> list[OutletFeeds]:
+    """Test every configured feed; for outlets without a working one (and little from
+    GDELT), find the feeds their homepage declares and test those. Changes nothing."""
+    sync_config(settings)
+    conn = connect(settings.db_path)
+    try:
+        domains = ingest.outlet_domains(conn)
+        rows = conn.execute(
+            "SELECT o.domain, o.display_name, o.feeds, o.language, (SELECT count(*) FROM"
+            " articles a WHERE a.outlet_id = o.id AND a.source = 'gdelt' AND"
+            " a.published_at >= ?) AS week FROM outlets o WHERE o.active = 1"
+            " ORDER BY o.display_name COLLATE NOCASE",
+            (ts(datetime.now(UTC) - timedelta(days=7)),),
+        ).fetchall()
+        robots = Robots(_robots_fetcher(settings, conn))
+    finally:
+        conn.close()
+    fetch_feed = _feed_fetcher(settings)
+    now = datetime.now(UTC).replace(microsecond=0)
+    report = []
+    for r in rows:
+        aliases = domains.get(r["domain"], [])
+
+        context = (r["domain"], aliases, r["language"], robots, fetch_feed, now)
+        checks = [_test_feed(FeedCheck(url, "configured"), *context) for url in r["feeds"].split()]
+        wants_discovery = discover_all or r["week"] < LOW_GDELT_WEEK
+        if wants_discovery and not any(c.usable for c in checks):
+            known = {c.url for c in checks}
+            for url, title in _discover(settings, r["domain"], aliases, robots)[:5]:
+                if url not in known:
+                    checks.append(_test_feed(FeedCheck(url, "discovered", title), *context))
+        report.append(OutletFeeds(r["domain"], r["display_name"], r["week"], checks))
+    return report
+
+
+def _test_feed(
+    check: FeedCheck,
+    domain: str,
+    aliases: list[str],
+    language: str | None,
+    robots: Robots,
+    fetch_feed: Callable[[str], bytes],
+    now: datetime,
+) -> FeedCheck:
+    if robots.check(check.url) != "allowed":
+        check.error = "robots.txt doesn't allow it"
+        return check
+    try:
+        items = parse_feed(fetch_feed(check.url), check.url)
+    except (FetchBlocked, ApiError) as exc:
+        check.error = str(exc)[:120]
+        return check
+    got = feed_records(items, domain, aliases, language, now, timedelta(days=36500))
+    check.items, check.on_site = got.items, len(got.records)
+    check.dated = sum(1 for x in got.records if x.outlet_published_at)
+    check.newest = got.newest
+    return check
+
+
+def _discover(
+    settings: Settings, domain: str, aliases: list[str], robots: Robots
+) -> list[tuple[str, str]]:
+    """Feeds the outlet's homepage declares (RSS autodiscovery)."""
+    home = f"https://{domain}/"
+    if robots.check(home) != "allowed":
+        return []
+    try:
+        page = safe_fetch(
+            home,
+            allowlist=[domain, *aliases],
+            allowed_types=HTML_TYPES,
+            max_bytes=1_500_000,
+            timeout=15,
+            user_agent=settings.user_agent,
+            truncate=True,
+        )
+    except FetchBlocked:
+        return []
+    return discover_feeds(page.body.decode("utf-8", errors="replace"), page.url)

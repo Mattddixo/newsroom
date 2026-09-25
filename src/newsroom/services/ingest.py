@@ -98,12 +98,23 @@ def sync_outlets(conn: sqlite3.Connection, outlets: Sequence[OutletConfig], now:
     try:
         for o in outlets:
             conn.execute(
-                "INSERT INTO outlets (domain, display_name, country, language, aliases, active,"
-                " created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?)"
+                "INSERT INTO outlets (domain, display_name, country, language, aliases, feeds,"
+                " note, active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)"
                 " ON CONFLICT (domain) DO UPDATE SET display_name = excluded.display_name,"
                 " country = excluded.country, language = excluded.language,"
-                " aliases = excluded.aliases, active = 1, updated_at = excluded.updated_at",
-                (o.domain, o.name, o.country, o.language, " ".join(o.also), stamp, stamp),
+                " aliases = excluded.aliases, feeds = excluded.feeds, note = excluded.note,"
+                " active = 1, updated_at = excluded.updated_at",
+                (
+                    o.domain,
+                    o.name,
+                    o.country,
+                    o.language,
+                    " ".join(o.also),
+                    " ".join(o.feeds),
+                    o.note,
+                    stamp,
+                    stamp,
+                ),
             )
         domains = [o.domain for o in outlets]
         placeholders = ",".join("?" * len(domains)) or "''"
@@ -305,14 +316,17 @@ def _store(
             outlet_id = outlets.get(rec.domain)
             if outlet_id is None:
                 continue
+            stated = ts(rec.outlet_published_at) if rec.outlet_published_at else None
+            key = canonical_key(rec.url)
             cur = conn.execute(
                 "INSERT INTO articles (url, url_key, title, outlet_id, published_at,"
-                " language, image_url, source, source_url, retrieved_at)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                " language, image_url, source, source_url, retrieved_at,"
+                " outlet_published_at, pubdate_method, pubdate_checked_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
                 " ON CONFLICT (url_key) DO NOTHING",
                 (
                     rec.url,
-                    canonical_key(rec.url),
+                    key,
                     rec.title,
                     outlet_id,
                     ts(rec.published_at),
@@ -321,11 +335,22 @@ def _store(
                     source_name,
                     result.source_url,
                     retrieved,
+                    stated,
+                    rec.pubdate_method if stated else None,
+                    retrieved if stated else None,  # dated by its source: nothing to check
                 ),
             )
             if cur.rowcount == 1:
                 summary.inserted += 1
                 tag_article(conn, tagger, cur.lastrowid or 0, rec.title, ids)
+            elif stated:
+                # Already stored (e.g. from GDELT) without a date: take the source's.
+                conn.execute(
+                    "UPDATE articles SET outlet_published_at = ?, pubdate_method = ?,"
+                    " pubdate_checked_at = coalesce(pubdate_checked_at, ?)"
+                    " WHERE url_key = ? AND outlet_published_at IS NULL",
+                    (stated, rec.pubdate_method, retrieved, key),
+                )
         _progress(conn, summary)  # same transaction: counts match what is saved
         conn.execute("COMMIT")
     except Exception:

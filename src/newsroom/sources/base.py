@@ -16,6 +16,9 @@ class ArticleRecord:
     published_at: datetime  # timezone-aware UTC
     language: str | None
     image_url: str | None
+    # The outlet's own publication time, when the source states it (e.g. a feed's pubDate).
+    outlet_published_at: datetime | None = None
+    pubdate_method: str | None = None
 
 
 @dataclass

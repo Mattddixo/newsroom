@@ -233,8 +233,23 @@ def test_new_articles_are_dated_straight_after_ingest(
         worker.jobs, "ingest_articles", lambda s, wait: SimpleNamespace(inserted=inserted)
     )
     monkeypatch.setattr(worker.jobs, "publication_dates", lambda s, wait: calls.append(wait))
+    monkeypatch.setattr(worker.jobs, "ingest_feeds", lambda s, wait: SimpleNamespace(inserted=0))
     worker.run_ingest(Settings())
     assert len(calls) == expected
+
+
+def test_new_feed_articles_are_dated_too(monkeypatch: pytest.MonkeyPatch) -> None:
+    from types import SimpleNamespace
+
+    from newsroom import worker
+    from newsroom.settings import Settings
+
+    calls: list[float] = []
+    monkeypatch.setattr(worker.jobs, "ingest_articles", lambda s, wait: SimpleNamespace(inserted=0))
+    monkeypatch.setattr(worker.jobs, "ingest_feeds", lambda s, wait: SimpleNamespace(inserted=4))
+    monkeypatch.setattr(worker.jobs, "publication_dates", lambda s, wait: calls.append(wait))
+    worker.run_ingest(Settings())
+    assert len(calls) == 1
 
 
 def test_date_check_after_ingest_skips_quietly_if_one_is_running(
@@ -250,5 +265,6 @@ def test_date_check_after_ingest_skips_quietly_if_one_is_running(
         raise IngestBusy("a pass is running")
 
     monkeypatch.setattr(worker.jobs, "ingest_articles", lambda s, wait: SimpleNamespace(inserted=5))
+    monkeypatch.setattr(worker.jobs, "ingest_feeds", lambda s, wait: SimpleNamespace(inserted=0))
     monkeypatch.setattr(worker.jobs, "publication_dates", busy)
     worker.run_ingest(Settings())  # no exception: the running pass or the next one covers it
