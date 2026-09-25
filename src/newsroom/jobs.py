@@ -8,6 +8,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from urllib.parse import urljoin, urlsplit, urlunsplit
+from zoneinfo import ZoneInfo
 
 from newsroom.config import ConfigError, load_curated_funding, load_outlets, load_tags
 from newsroom.db import connect
@@ -39,7 +40,7 @@ from newsroom.sources.pubdate import (
     parse_timestamp,
 )
 from newsroom.sources.wikidata import WikidataSource
-from newsroom.urls import host_matches, host_of, is_http_url
+from newsroom.urls import canonical_key, host_matches, host_of, is_http_url
 
 log = logging.getLogger(__name__)
 
@@ -206,37 +207,82 @@ def _page_fetchers(
 
 
 def explain_date(settings: Settings, url: str) -> list[str]:
-    """What the date check would do with one article page, step by step (for diagnosis).
-    Same fetchers and limits as the real check; only outlets' own sites."""
+    """Where one article's date comes from, step by step (for diagnosis): what is stored,
+    what the outlet's feed states, and what the date check finds on the page. Same
+    fetchers and limits as the real thing; only outlets' own sites and feeds."""
     if not is_http_url(url):
         raise ValueError("not an http(s) link")
+    tz = ZoneInfo(settings.timezone)
+    local = lambda when: f"{when.astimezone(tz):%Y-%m-%d %H:%M %Z}"  # noqa: E731
     conn = connect(settings.db_path)
     try:
         outlets = ingest.outlet_domains(conn)
-        seen_row = conn.execute(
-            "SELECT published_at FROM articles WHERE url = ?", (url,)
+        stored = conn.execute(
+            "SELECT published_at, source, outlet_published_at, pubdate_method FROM articles"
+            " WHERE url_key = ?",
+            (canonical_key(url),),
         ).fetchone()
+        host = host_of(url)
+        domain = next(
+            (
+                main
+                for main, others in outlets.items()
+                if any(host_matches(host, d) for d in (main, *others))
+            ),
+            None,
+        )
+        if domain is None:
+            raise LookupError(f"{host} is not one of the outlets in outlets.yaml")
+        feeds_row = conn.execute("SELECT feeds FROM outlets WHERE domain = ?", (domain,)).fetchone()
+        feed_robots = _robots_fetcher(settings, conn)
     finally:
         conn.close()
-    host = host_of(url)
-    domain = next(
-        (
-            main
-            for main, others in outlets.items()
-            if any(host_matches(host, d) for d in (main, *others))
-        ),
-        None,
-    )
-    if domain is None:
-        raise LookupError(f"{host} is not one of the outlets in outlets.yaml")
-    seen = parse_ts(seen_row[0]) if seen_row else datetime.now(UTC)
-    lines = [
-        f"outlet: {domain}",
-        f"GDELT saw it: {ts(seen) if seen_row else 'not in the database (using now)'}",
-    ]
+    lines = [f"outlet: {domain}"]
+    if stored:
+        seen = parse_ts(stored["published_at"])
+        lines.append(f"first seen: {ts(seen)} ({local(seen)}), via {stored['source']}")
+        if stored["outlet_published_at"]:
+            when = parse_ts(stored["outlet_published_at"])
+            lines.append(
+                f"stored publication date: {ts(when)}, shown as {local(when)}"
+                f" (from {stored['pubdate_method']})"
+            )
+        else:
+            lines.append(
+                f"stored publication date: none ({stored['pubdate_method'] or 'not checked yet'})"
+            )
+    else:
+        seen = datetime.now(UTC)
+        lines.append("not in the database (the checks below use now as first seen)")
+
+    # What the outlet's own feed says about this article, raw.
+    feeds = feeds_row["feeds"].split() if feeds_row else []
+    key = canonical_key(url)
+    fetch_feed = _feed_fetcher(settings)
+    robots = Robots(feed_robots)
+    for feed in feeds:
+        if robots.check(feed) != "allowed":
+            lines.append(f"feed {feed}: not read (robots.txt)")
+            continue
+        try:
+            items = parse_feed(fetch_feed(feed, [domain, *outlets.get(domain, [])]), feed)
+        except (FetchBlocked, ApiError) as exc:
+            lines.append(f"feed {feed}: could not be read ({exc})")
+            continue
+        item = next((i for i in items if i.link and canonical_key(i.link) == key), None)
+        if item is None:
+            lines.append(f"feed {feed}: article not in it now")
+        elif item.published:
+            lines.append(
+                f"feed {feed}: {item.date_field} {item.raw_date!r} -> {ts(item.published)}"
+                f" = {local(item.published)}"
+            )
+        else:
+            lines.append(f"feed {feed}: no usable date ({item.raw_date!r})")
+
     robots_text, page = _page_fetchers(settings, outlets)
     verdict = Robots(robots_text).check(url)
-    lines.append(f"robots.txt: {verdict}")
+    lines.append(f"page robots.txt: {verdict}")
     if verdict != "allowed":
         return lines
     try:
@@ -253,7 +299,7 @@ def explain_date(settings: Settings, url: str) -> list[str]:
         if when is None:
             why = "rejected: not a full date-time with a time zone"
         elif when > seen + FUTURE_SKEW:
-            why = "rejected: later than GDELT saw the article"
+            why = "rejected: later than the article was first seen"
         elif when < EARLIEST:
             why = "rejected: before 1995"
         elif isinstance(found, DateConflict):
@@ -262,19 +308,20 @@ def explain_date(settings: Settings, url: str) -> list[str]:
             why = "USED"
         else:
             why = "valid (a higher-priority tag was used)"
-        lines.append(f"  {method}: {str(raw)[:60]!r} -> {why}")
+        shown = f" [{local(when)}]" if when else ""
+        lines.append(f"  {method}: {str(raw)[:60]!r}{shown} -> {why}")
     if not listed:
         lines.append("  no date tags in the page's metadata")
     if isinstance(found, DateConflict):
         (m1, t1), (m2, t2) = found.first, found.second
         hours = abs(t1 - t2) // timedelta(hours=1)
         lines.append(
-            f"result: no date. {m1} ({ts(t1)}) and {m2} ({ts(t2)}) are {hours} h apart,"
+            f"page result: no date. {m1} ({ts(t1)}) and {m2} ({ts(t2)}) are {hours} h apart,"
             " so the page gets a time zone wrong and neither can be trusted"
         )
     else:
         lines.append(
-            f"result: {ts(found.when) + ' (' + found.method + ')' if found else 'no date'}"
+            f"page result: {local(found.when) + ' (' + found.method + ')' if found else 'no date'}"
         )
     return lines
 

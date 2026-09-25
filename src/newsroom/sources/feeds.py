@@ -96,6 +96,7 @@ class FeedItem:
     link: str
     published: datetime | None
     date_field: str | None  # which element the date came from
+    raw_date: str = ""  # the date exactly as the feed states it (for diagnosis)
 
 
 def _item_link(el: Element, atom: bool, base: str) -> str:
@@ -113,15 +114,18 @@ def _item_link(el: Element, atom: bool, base: str) -> str:
     return urljoin(base, link) if link else ""
 
 
-def _item_date(el: Element, atom: bool) -> tuple[datetime | None, str | None]:
+def _item_date(el: Element, atom: bool) -> tuple[datetime | None, str | None, str]:
     # Atom's <updated> is the last edit, not publication: an entry without <published>
     # counts as undated (its page is checked instead).
     fields = ("published",) if atom else ("pubdate", "date", "published")
+    first_raw = ""
     for name in fields:
-        when = parse_feed_date(_text(_child(el, name)))
+        raw = _text(_child(el, name))
+        first_raw = first_raw or raw
+        when = parse_feed_date(raw)
         if when:
-            return when, name
-    return None, None
+            return when, name, raw
+    return None, None, first_raw
 
 
 def parse_feed(body: bytes, base_url: str) -> list[FeedItem]:
@@ -153,8 +157,8 @@ def parse_feed(body: bytes, base_url: str) -> list[FeedItem]:
     for el in entries[:MAX_ITEMS]:
         title = clean_title(_strip_tags(_text(_child(el, "title"))))
         link = _item_link(el, atom, base_url)
-        when, field = _item_date(el, atom)
-        items.append(FeedItem(title, link, when, field))
+        when, field, raw = _item_date(el, atom)
+        items.append(FeedItem(title, link, when, field, raw))
     return items
 
 

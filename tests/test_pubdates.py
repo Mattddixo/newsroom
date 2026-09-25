@@ -418,24 +418,37 @@ def test_explain_shows_each_step(
 ) -> None:
     from newsroom import jobs
 
+    feed = b"""<rss><channel><item><title>One</title><link>https://cbc.ca/news/1/</link>
+      <pubDate>Wed, 23 Sep 2026 22:50:00 -0400</pubDate></item></channel></rss>"""
+
     def fake_safe_fetch(url: str, **kw):  # type: ignore[no-untyped-def]
         if url.endswith("/robots.txt"):
             return FetchResult(
                 url=url, content_type="text/plain", body=b"User-agent: *\nDisallow: /private/\n"
             )
+        if url == "https://cbc.ca/feed.xml":
+            return FetchResult(url=url, content_type="application/rss+xml", body=feed)
         return html_result(url, page("naive_and_future.html"))
 
     monkeypatch.setattr(jobs, "safe_fetch", fake_safe_fetch)
+    conn.execute("UPDATE outlets SET feeds = 'https://cbc.ca/feed.xml' WHERE domain = 'cbc.ca'")
     settings = Settings(data_dir=tmp_path, contact_email="x@example.org")
     lines = jobs.explain_date(settings, "https://cbc.ca/news/1")
     text = "\n".join(lines)
-    assert "outlet: cbc.ca" in text and "robots.txt: allowed" in text
+    assert "outlet: cbc.ca" in text and "page robots.txt: allowed" in text
+    assert "first seen: 2026-09-24T03:00:00Z (2026-09-23 23:00 EDT), via fake" in text
+    assert "stored publication date: none (not checked yet)" in text
+    # the feed's raw date, what it means in UTC, and how it would be shown
+    assert (
+        "feed https://cbc.ca/feed.xml: pubdate 'Wed, 23 Sep 2026 22:50:00 -0400'"
+        " -> 2026-09-24T02:50:00Z = 2026-09-23 22:50 EDT"
+    ) in text
     assert "rejected: not a full date-time with a time zone" in text  # the naive value
-    assert "rejected: later than GDELT saw the article" in text
-    assert "result:" in text
+    assert "rejected: later than the article was first seen" in text
+    assert "page result:" in text
 
     blocked = jobs.explain_date(settings, "https://cbc.ca/private/x")
-    assert blocked[-1] == "robots.txt: disallowed"  # stops there: the page isn't read
+    assert blocked[-1] == "page robots.txt: disallowed"  # stops there: the page isn't read
     with pytest.raises(LookupError):
         jobs.explain_date(settings, "https://example.com/not-an-outlet")
     with pytest.raises(ValueError):
