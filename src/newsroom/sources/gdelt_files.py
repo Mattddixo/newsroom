@@ -270,9 +270,10 @@ class GkgFilesSource:
         return records
 
 
-def count_hosts(lines: Iterator[str]) -> dict[str, int]:
-    """Web articles per URL host in GKG lines (for the coverage check)."""
-    counts: dict[str, int] = {}
+def count_hosts(lines: Iterator[str]) -> dict[str, list[int]]:
+    """Web articles per URL host in GKG lines, as [articles, with a headline] (for the
+    coverage check; ingestion can only use articles that have a headline)."""
+    counts: dict[str, list[int]] = {}
     for line in lines:
         collection, _ = _column(line, 2)
         if collection != "1":
@@ -285,16 +286,19 @@ def count_hosts(lines: Iterator[str]) -> dict[str, int]:
         except ValueError:
             continue
         if host:
-            counts[host] = counts.get(host, 0) + 1
+            entry = counts.setdefault(host, [0, 0])
+            entry[0] += 1
+            if "<PAGE_TITLE>" in line and "<PAGE_TITLE></PAGE_TITLE>" not in line:
+                entry[1] += 1
     return counts
 
 
 def scan_hosts(
     client: ApiClient, tmp_dir: Path, slots: Sequence[datetime]
-) -> tuple[dict[str, int], int]:
-    """Article counts per host across the given slots (both streams). Returns (counts,
-    files read). Missing files are skipped: this is a survey, not ingestion."""
-    totals: dict[str, int] = {}
+) -> tuple[dict[str, list[int]], int]:
+    """[articles, with a headline] per host across the given slots (both streams). Returns
+    (counts, files read). Missing files are skipped: this is a survey, not ingestion."""
+    totals: dict[str, list[int]] = {}
     files = 0
     tmp_dir.mkdir(parents=True, exist_ok=True)
     for slot in slots:
@@ -309,6 +313,8 @@ def scan_hosts(
                 except (zipfile.BadZipFile, EOFError, OSError) as exc:
                     raise ApiError(f"unreadable zip {url}: {exc}") from exc
             files += 1
-            for host, n in counts.items():
-                totals[host] = totals.get(host, 0) + n
+            for host, (n, titled) in counts.items():
+                entry = totals.setdefault(host, [0, 0])
+                entry[0] += n
+                entry[1] += titled
     return totals, files

@@ -32,20 +32,21 @@ def test_name_tokens() -> None:
 
 def test_report_says_what_to_do_for_each_outlet() -> None:
     hosts = {
-        "www.ms.now": 5,
-        "www.msnbc.com": 1,
-        "www.cbc.ca": 10,
-        "notcbc.ca": 2,  # ignored: "cbc" is too short to look for look-alikes
-        "www.saltwire.com": 3,  # not named like the Herald, so not suggested
-        "washingtonpost.example": 4,
-        "www.manilatimes.net": 9,  # contains "latimes" but isn't named like it
-        "www.nytimes.com": 7,  # not one of these outlets
+        "www.ms.now": [5, 5],
+        "www.msnbc.com": [1, 1],
+        "www.cbc.ca": [10, 10],
+        "notcbc.ca": [2, 2],  # ignored: "cbc" is too short to look for look-alikes
+        "www.saltwire.com": [3, 3],  # not named like the Herald, so not suggested
+        "washingtonpost.example": [4, 4],
+        "www.manilatimes.net": [9, 9],  # contains "latimes" but isn't named like it
+        "www.nytimes.com": [7, 7],  # not one of these outlets
     }
     rows = {r.domain: r for r in build_report(OUTLETS, hosts, {"cbc.ca": 50})}
     assert rows["ms.now"].verdict == "carried"
     assert rows["ms.now"].in_gdelt == 6
     assert rows["ms.now"].hosts == {"www.ms.now": 5, "www.msnbc.com": 1}
     assert rows["cbc.ca"].in_gdelt == 10 and rows["cbc.ca"].stored_7d == 50
+    assert rows["cbc.ca"].with_titles == 10
     assert rows["washingtonpost.com"].verdict == "check look-alikes"
     assert rows["washingtonpost.com"].lookalikes == [("washingtonpost.example", 4)]
     assert rows["thechronicleherald.ca"].verdict == "not in GDELT's files"
@@ -62,7 +63,7 @@ def test_scan_counts_hosts_and_skips_missing_files(tmp_path: Path) -> None:
             slot_url(first): gkg_zip(
                 [
                     gkg_line("https://www.cbc.ca/1", n=1),
-                    gkg_line("https://www.cbc.ca/2", n=2),
+                    gkg_line("https://www.cbc.ca/2", title="", n=2),  # no headline
                     gkg_line("https://www.ms.now/3", n=3),
                     gkg_line("https://www.cbc.ca/print", collection="2", n=4),  # not web
                 ]
@@ -76,7 +77,7 @@ def test_scan_counts_hosts_and_skips_missing_files(tmp_path: Path) -> None:
     client = ApiClient("ua", transport=httpx.MockTransport(files), sleep=lambda s: None)
     counts, read = scan_hosts(client, tmp_path / "tmp", [first, second])
     assert read == 2
-    assert counts == {"www.cbc.ca": 2, "www.ms.now": 1, "ici.radio-canada.ca": 1}
+    assert counts == {"www.cbc.ca": [2, 1], "www.ms.now": [1, 1], "ici.radio-canada.ca": [1, 1]}
 
 
 def test_coverage_job(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -84,7 +85,9 @@ def test_coverage_job(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from newsroom.settings import Settings
 
     settings = Settings(data_dir=tmp_path, config_dir=Path("config"))
-    monkeypatch.setattr(jobs, "scan_hosts", lambda c, d, slots: ({"www.ms.now": 3}, 2 * len(slots)))
+    monkeypatch.setattr(
+        jobs, "scan_hosts", lambda c, d, slots: ({"www.ms.now": [3, 0]}, 2 * len(slots))
+    )
     from newsroom.db import connect
     from newsroom.migrate import migrate
 
@@ -95,5 +98,6 @@ def test_coverage_job(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     assert slots in (8, 9) and files == 2 * slots  # 2 hours of 15-minute slots, 2 streams
     carried = [r for r in rows if r.verdict == "carried"]
     assert [r.domain for r in carried] == ["ms.now"]
+    assert carried[0].with_titles == 0  # GDELT has them, but without headlines
     with pytest.raises(ValueError):
         jobs.coverage(settings, 0)

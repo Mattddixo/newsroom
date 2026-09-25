@@ -7,7 +7,7 @@ import sqlite3
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlsplit, urlunsplit
 
 from newsroom.config import ConfigError, load_curated_funding, load_outlets, load_tags
 from newsroom.db import connect
@@ -106,13 +106,14 @@ def ingest_feeds(settings: Settings, *, wait: float = 0) -> ingest.RunSummary:
             conn.close()
 
 
-def _feed_fetcher(settings: Settings) -> Callable[[str], bytes]:
-    """A feed comes from the host its URL names (set in outlets.yaml), nowhere else."""
+def _feed_fetcher(settings: Settings) -> Callable[[str, list[str]], bytes]:
+    """A feed comes from the host its URL names (set in outlets.yaml), or redirects within
+    the outlet's own domains (HuffPost's feed moves to chaski.huffpost.com), nowhere else."""
 
-    def fetch(url: str) -> bytes:
+    def fetch(url: str, outlet_domains: list[str]) -> bytes:
         return safe_fetch(
             url,
-            allowlist=[host_of(url)],
+            allowlist=[host_of(url), *outlet_domains],
             allowed_types=FEED_TYPES | {"text/plain"},
             max_bytes=MAX_FEED_BYTES,
             timeout=20,
@@ -498,14 +499,18 @@ def _test_feed(
     aliases: list[str],
     language: str | None,
     robots: Robots,
-    fetch_feed: Callable[[str], bytes],
+    fetch_feed: Callable[[str, list[str]], bytes],
     now: datetime,
 ) -> FeedCheck:
-    if robots.check(check.url) != "allowed":
+    verdict = robots.check(check.url)
+    if verdict == "disallowed":
         check.error = "robots.txt doesn't allow it"
         return check
+    if verdict != "allowed":
+        check.error = "robots.txt couldn't be read (the site was left alone; try again later)"
+        return check
     try:
-        items = parse_feed(fetch_feed(check.url), check.url)
+        items = parse_feed(fetch_feed(check.url, [domain, *aliases]), check.url)
     except (FetchBlocked, ApiError) as exc:
         check.error = str(exc)[:120]
         return check
@@ -538,5 +543,15 @@ def _discover(
         )
     except FetchBlocked as exc:
         return [], f"homepage not read: {str(exc)[:100]}", home
-    found = discover_feeds(page.body.decode("utf-8", errors="replace"), page.url)
-    return found, "" if found else "the homepage declares no feed", page.url
+    base = _without_default_port(page.url)
+    found = discover_feeds(page.body.decode("utf-8", errors="replace"), base)
+    return found, "" if found else "the homepage declares no feed", base
+
+
+def _without_default_port(url: str) -> str:
+    """https://www.x.ca:443/ -> https://www.x.ca/ (the fetcher reports the port it used)."""
+    parts = urlsplit(url)
+    default = {"https": 443, "http": 80}.get(parts.scheme)
+    if parts.port is not None and parts.port == default and parts.hostname:
+        return urlunsplit(parts._replace(netloc=parts.hostname))
+    return url

@@ -23,6 +23,7 @@ class OutletCoverage:
     domain: str
     name: str
     in_gdelt: int = 0  # articles on the outlet's own domains in the files read
+    with_titles: int = 0  # of those, how many carry a headline (the rest can't be used)
     hosts: dict[str, int] = field(default_factory=dict)  # which of its hosts, how many
     lookalikes: list[tuple[str, int]] = field(default_factory=list)
     stored_7d: int = 0  # articles already stored, last 7 days
@@ -47,7 +48,7 @@ def name_tokens(domain: str, others: Sequence[str] = ()) -> set[str]:
 
 def build_report(
     outlets: Mapping[str, tuple[str, Sequence[str]]],
-    host_counts: Mapping[str, int],
+    host_counts: Mapping[str, Sequence[int]],
     stored_7d: Mapping[str, int],
 ) -> list[OutletCoverage]:
     """`outlets`: domain -> (name, other domains). Sorted: problems first, then by name."""
@@ -58,10 +59,11 @@ def build_report(
         for d, (name, _) in outlets.items()
     }
     unclaimed: dict[str, int] = {}
-    for host, n in host_counts.items():
+    for host, (n, titled) in host_counts.items():
         owner = match(host)
         if owner:
             report[owner].in_gdelt += n
+            report[owner].with_titles += titled
             report[owner].hosts[host] = report[owner].hosts.get(host, 0) + n
         else:
             unclaimed[host] = n

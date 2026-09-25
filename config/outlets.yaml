@@ -20,21 +20,28 @@ outlets:
   # --- Canada: national and broadcast (English) ---
   - {domain: cbc.ca,                 name: CBC News,                  country: CA, language: en}
   - {domain: ctvnews.ca,             name: CTV News,                  country: CA, language: en,
-     note: "Few articles: GDELT carries little of CTV News, and CTV News publishes no RSS feeds (per its FAQ)."}
+     feeds: ["https://www.ctvnews.ca/arc/outboundfeeds/rss/?outputType=xml"]}
   - {domain: globalnews.ca,          name: Global News,               country: CA, language: en}
   - {domain: citynews.ca,            name: CityNews,                  country: CA, language: en}
   - {domain: cp24.com,               name: CP24,                      country: CA, language: en}
-  - {domain: aptnnews.ca,            name: APTN News,                 country: CA, language: en}
+  - {domain: aptnnews.ca,            name: APTN News,                 country: CA, language: en,
+     feeds: [https://aptnnews.ca/feed/]}
   - {domain: theglobeandmail.com,    name: The Globe and Mail,        country: CA, language: en}
   - {domain: nationalpost.com,       name: National Post,             country: CA, language: en}
-  - {domain: thestar.com,            name: Toronto Star,              country: CA, language: en}
+  - {domain: thestar.com,            name: Toronto Star,              country: CA, language: en,
+     note: "Few articles: GDELT carries little of the Toronto Star, and its robots.txt disallows reading its RSS feed (checked 2026-09-25)."}
   - {domain: torontosun.com,         name: Toronto Sun,               country: CA, language: en}
-  - {domain: macleans.ca,            name: Maclean's,                 country: CA, language: en}
-  - {domain: thewalrus.ca,           name: The Walrus,                country: CA, language: en}
+  - {domain: macleans.ca,            name: Maclean's,                 country: CA, language: en,
+     note: "No articles: GDELT doesn't carry Maclean's, and its site refuses automated requests, so its feed can't be read (checked 2026-09-25)."}
+  - {domain: thewalrus.ca,           name: The Walrus,                country: CA, language: en,
+     feeds: [https://thewalrus.ca/feed/]}
   - {domain: hilltimes.com,          name: The Hill Times,            country: CA, language: en}
-  - {domain: ipolitics.ca,           name: iPolitics,                 country: CA, language: en}
-  - {domain: nationalobserver.com,   name: Canada's National Observer, country: CA, language: en}
-  - {domain: thenarwhal.ca,          name: The Narwhal,               country: CA, language: en}
+  - {domain: ipolitics.ca,           name: iPolitics,                 country: CA, language: en,
+     note: "No articles: GDELT doesn't carry iPolitics, and its site refuses automated requests, so its feed can't be read (checked 2026-09-25)."}
+  - {domain: nationalobserver.com,   name: Canada's National Observer, country: CA, language: en,
+     note: "No articles: GDELT doesn't carry Canada's National Observer, and its site refuses automated requests, so its feed can't be read (checked 2026-09-25)."}
+  - {domain: thenarwhal.ca,          name: The Narwhal,               country: CA, language: en,
+     feeds: [https://thenarwhal.ca/feed/]}
   - {domain: thetyee.ca,             name: The Tyee,                  country: CA, language: en}
   - {domain: thelogic.co,            name: The Logic,                 country: CA, language: en,
      feeds: [https://thelogic.co/feed/]}
@@ -60,26 +67,29 @@ outlets:
      feeds: [https://www.journaldequebec.com/rss.xml]}
   - {domain: tvanouvelles.ca,        name: TVA Nouvelles,             country: CA, language: fr,
      feeds: [https://www.tvanouvelles.ca/rss.xml]}
-  - {domain: lesoleil.com,           name: Le Soleil,                 country: CA, language: fr}
+  - {domain: lesoleil.com,           name: Le Soleil,                 country: CA, language: fr,
+     feeds: ["https://www.lesoleil.com/arc/outboundfeeds/rss/?outputType=xml"]}
 
   # --- US: wires, national and broadcast ---
-  - {domain: apnews.com,             name: Associated Press,          country: US, language: en}
+  - {domain: apnews.com,             name: Associated Press,          country: US, language: en,
+     note: "No articles: GDELT doesn't carry the Associated Press, and no public RSS feed was found (checked 2026-09-25)."}
   - {domain: reuters.com,            name: Reuters,                   country: US, language: en,
      note: "No articles: GDELT doesn't carry Reuters, and Reuters has published no public RSS feeds since June 2020."}
   - {domain: npr.org,                name: NPR,                       country: US, language: en}
   - {domain: pbs.org,                name: PBS News,                  country: US, language: en,
-     feeds: [https://www.pbs.org/newshour/feeds/rss/headlines]}
-  - {domain: voanews.com,            name: Voice of America,          country: US, language: en}
+     note: "Few articles: GDELT carries little of PBS News, and its robots.txt disallows reading its RSS feeds (checked 2026-09-25)."}
+  - {domain: voanews.com,            name: Voice of America,          country: US, language: en,
+     feeds: [https://www.voanews.com/rss/]}
   - {domain: cnn.com,                name: CNN,                       country: US, language: en}
   - {domain: foxnews.com,            name: Fox News,                  country: US, language: en}
   - {domain: nbcnews.com,            name: NBC News,                  country: US, language: en}
   - {domain: cbsnews.com,            name: CBS News,                  country: US, language: en}
-  - {domain: abcnews.go.com,         name: ABC News,                  country: US, language: en, also: [abcnews.com],
-     feeds: [https://feeds.abcnews.com/abcnews/topstories]}
+  - {domain: abcnews.go.com,         name: ABC News,                  country: US, language: en, also: [abcnews.com]}
   - {domain: ms.now,                 name: MS NOW,                    country: US, language: en, also: [msnbc.com],
      feeds: [https://www.ms.now/feed]}
   - {domain: cnbc.com,               name: CNBC,                      country: US, language: en}
-  - {domain: bloomberg.com,          name: Bloomberg,                 country: US, language: en}
+  - {domain: bloomberg.com,          name: Bloomberg,                 country: US, language: en,
+     note: "No articles: GDELT doesn't carry Bloomberg, and no public RSS feed was found (checked 2026-09-25)."}
 
   # --- US: newspapers and magazines ---
   - {domain: nytimes.com,            name: The New York Times,        country: US, language: en,
@@ -87,15 +97,17 @@ outlets:
   - {domain: washingtonpost.com,     name: The Washington Post,       country: US, language: en,
      feeds: [https://feeds.washingtonpost.com/rss/national, https://feeds.washingtonpost.com/rss/politics]}
   - {domain: wsj.com,                name: The Wall Street Journal,   country: US, language: en,
-     feeds: [https://feeds.a.dj.com/rss/RSSWorldNews.xml]}
-  - {domain: usatoday.com,           name: USA Today,                 country: US, language: en}
+     note: "No articles: GDELT doesn't carry the Wall Street Journal, and its public RSS feeds haven't been updated since January 2025 (checked 2026-09-25)."}
+  - {domain: usatoday.com,           name: USA Today,                 country: US, language: en,
+     note: "No articles: GDELT doesn't carry USA Today, and no public RSS feed was found (checked 2026-09-25)."}
   - {domain: latimes.com,            name: Los Angeles Times,         country: US, language: en}
   - {domain: nypost.com,             name: New York Post,             country: US, language: en}
   - {domain: washingtontimes.com,    name: The Washington Times,      country: US, language: en,
-     feeds: [https://www.washingtontimes.com/rss/headlines/news/]}
+     note: "No articles: GDELT doesn't carry The Washington Times, and its RSS feed refuses automated requests (checked 2026-09-25)."}
   - {domain: bostonglobe.com,        name: The Boston Globe,          country: US, language: en}
   - {domain: chicagotribune.com,     name: Chicago Tribune,           country: US, language: en}
-  - {domain: sfchronicle.com,        name: San Francisco Chronicle,   country: US, language: en}
+  - {domain: sfchronicle.com,        name: San Francisco Chronicle,   country: US, language: en,
+     note: "No articles: GDELT doesn't carry the San Francisco Chronicle, and no public RSS feed was found (checked 2026-09-25)."}
   - {domain: seattletimes.com,       name: The Seattle Times,         country: US, language: en,
      feeds: [https://www.seattletimes.com/feed/]}
   - {domain: miamiherald.com,        name: Miami Herald,              country: US, language: en}
@@ -109,7 +121,8 @@ outlets:
   # --- US: digital-native ---
   - {domain: politico.com,           name: Politico,                  country: US, language: en,
      feeds: [https://rss.politico.com/politics-news.xml]}
-  - {domain: axios.com,              name: Axios,                     country: US, language: en}
+  - {domain: axios.com,              name: Axios,                     country: US, language: en,
+     note: "No articles: GDELT doesn't carry Axios, and no public RSS feed was found (checked 2026-09-25)."}
   - {domain: thehill.com,            name: The Hill,                  country: US, language: en,
      feeds: [https://thehill.com/feed/]}
   - {domain: vox.com,                name: Vox,                       country: US, language: en}

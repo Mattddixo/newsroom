@@ -24,7 +24,9 @@ from newsroom.sources.pubdate import ALLOWED, Robots
 log = logging.getLogger(__name__)
 
 SOURCE = "feeds"
-FeedFetcher = Callable[[str], bytes]
+# (feed URL, the outlet's own domains) -> body. The feed's host and the outlet's domains
+# are the only places it may be fetched or redirected to.
+FeedFetcher = Callable[[str, list[str]], bytes]
 
 
 def run_feeds(
@@ -69,7 +71,7 @@ def run_feeds(
                 sleep(wait)
             last = clock()
             try:
-                items = parse_feed(fetch(url), url)
+                items = parse_feed(fetch(url, [o["domain"], *o["aliases"].split()]), url)
             except (FetchBlocked, ApiError) as exc:
                 summary.query_errors += 1
                 log.warning("feed failed", extra={"feed": url, "error": str(exc)})

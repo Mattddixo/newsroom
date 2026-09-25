@@ -111,9 +111,11 @@ def cmd_outlets_coverage(args: argparse.Namespace) -> int:
         f"GDELT files read: {files} ({slots} fifteen-minute slots x English + translated,"
         f" last {args.hours} h)\n"
     )
-    print(f"{'OUTLET':<28} {'IN GDELT':>8} {'STORED 7D':>9}  RESULT")
+    print(f"{'OUTLET':<28} {'IN GDELT':>8} {'HEADLINE':>8} {'STORED 7D':>9}  RESULT")
     for r in rows:
-        print(f"{r.name[:27]:<28} {r.in_gdelt:>8} {r.stored_7d:>9}  {r.verdict}")
+        print(f"{r.name[:27]:<28} {r.in_gdelt:>8} {r.with_titles:>8} {r.stored_7d:>9}  {r.verdict}")
+        if r.in_gdelt and not r.with_titles:
+            print("    GDELT has its articles but no headlines, so none can be shown")
         if r.in_gdelt and len(r.hosts) > 1:
             print("    on: " + ", ".join(f"{h} ({n})" for h, n in sorted(r.hosts.items())))
         for host, n in r.lookalikes:
@@ -122,6 +124,7 @@ def cmd_outlets_coverage(args: argparse.Namespace) -> int:
     print(f"\n{len(rows) - missing} of {len(rows)} outlets found in GDELT's files.")
     print("  not in GDELT's files: none of its articles in this period. A small outlet may")
     print("    just be quiet (try --hours 24); a large one means GDELT doesn't carry it.")
+    print("  HEADLINE: of GDELT's articles, how many have a headline (only those are usable).")
     print("  check look-alikes: similar addresses exist that outlets.yaml doesn't list.")
     print("    If one is the outlet's own, add it under 'also:' in outlets.yaml.")
     return 0
@@ -154,7 +157,8 @@ def cmd_outlets_feeds(args: argparse.Namespace) -> int:
             reason = o.discovery or "no feed configured"
             print(f"    no working feed found ({reason}; usual feed addresses tried)")
         elif usable and any(c.origin != "configured" for c in o.checks if c.usable):
-            print(f"    suggested for outlets.yaml:  feeds: [{', '.join(usable)}]")
+            quoted = ", ".join(f'"{u}"' for u in usable)  # URLs may hold YAML specials (?, &)
+            print(f"    suggested for outlets.yaml:  feeds: [{quoted}]")
         print()
     working = sum(1 for o in shown if any(c.usable for c in o.checks))
     print(f"{working} of {len(shown)} outlets listed have a working feed.")

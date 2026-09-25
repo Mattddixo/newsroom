@@ -172,7 +172,7 @@ def conn(tmp_path: Path) -> sqlite3.Connection:
 def fetcher(bodies: dict[str, bytes]):  # type: ignore[no-untyped-def]
     requested: list[str] = []
 
-    def fetch(url: str) -> bytes:
+    def fetch(url: str, outlet_domains: list[str]) -> bytes:
         requested.append(url)
         if url not in bodies:
             raise FetchBlocked("unexpected status 404", status=404)
@@ -267,10 +267,11 @@ def test_feed_fetcher_is_limited_to_the_feed_host(
 
     monkeypatch.setattr(jobs, "safe_fetch", fake)
     jobs._feed_fetcher(Settings(data_dir=tmp_path, contact_email="x@example.org"))(
-        "https://feeds.example.ca/top.xml"
+        "https://feeds.example.ca/top.xml", ["example.ca", "example-old.ca"]
     )
     [c] = calls
-    assert c["allowlist"] == ["feeds.example.ca"]
+    # the feed's own host, or (after a redirect) the outlet's domains; nothing else
+    assert c["allowlist"] == ["feeds.example.ca", "example.ca", "example-old.ca"]
     assert "application/rss+xml" in c["allowed_types"] and c["max_bytes"] <= 5 * 1024 * 1024
     assert "x@example.org" in c["user_agent"]
 
@@ -414,3 +415,32 @@ def test_stale_feed_is_not_suggested(tmp_path: Path, monkeypatch: pytest.MonkeyP
     [outlet] = jobs.check_feeds(settings, now=NOW)
     declared = outlet.checks[0]
     assert declared.stale and not declared.usable
+
+
+def test_default_port_is_dropped_from_suggested_addresses() -> None:
+    from newsroom.jobs import _without_default_port
+
+    assert _without_default_port("https://www.ctvnews.ca:443/") == "https://www.ctvnews.ca/"
+    assert _without_default_port("http://x.ca:80/a?b=1") == "http://x.ca/a?b=1"
+    assert _without_default_port("https://x.ca:8443/") == "https://x.ca:8443/"
+    assert _without_default_port("https://x.ca/") == "https://x.ca/"
+
+
+def test_suggested_feeds_line_is_valid_yaml(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import argparse
+
+    import yaml
+
+    from newsroom import cli, jobs
+
+    url = "https://www.x.ca/arc/outboundfeeds/rss/?outputType=xml&a=1"
+    check = jobs.FeedCheck(url, "probed", items=3, on_site=3, dated=3, newest=NOW)
+    report = [jobs.OutletFeeds("x.ca", "X", 0, [check])]
+    monkeypatch.setattr(cli.jobs, "check_feeds", lambda s, discover_all: report)
+    monkeypatch.setattr(cli, "get_settings", lambda: None)
+    cli.cmd_outlets_feeds(argparse.Namespace(all=False))
+    line = next(x for x in capsys.readouterr().out.splitlines() if "suggested" in x)
+    pasted = line.split("suggested for outlets.yaml:", 1)[1].strip()
+    assert yaml.safe_load("{" + pasted + "}") == {"feeds": [url]}
