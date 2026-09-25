@@ -54,7 +54,8 @@ outlets:
   - {domain: calgaryherald.com,      name: Calgary Herald,            country: CA, language: en}
   - {domain: edmontonjournal.com,    name: Edmonton Journal,          country: CA, language: en}
   - {domain: winnipegfreepress.com,  name: Winnipeg Free Press,       country: CA, language: en}
-  - {domain: thechronicleherald.ca,  name: The Chronicle Herald,      country: CA, language: en}
+  - {domain: thechronicleherald.ca,  name: The Chronicle Herald,      country: CA, language: en,
+     note: "No articles: GDELT doesn't carry The Chronicle Herald, and its site doesn't answer automated requests, so its feed can't be read (checked 2026-09-25)."}
 
   # --- Canada: French-language ---
   - {domain: radio-canada.ca,        name: Radio-Canada,              country: CA, language: fr,
@@ -80,7 +81,8 @@ outlets:
      note: "Few articles: GDELT carries little of PBS News, and its robots.txt disallows reading its RSS feeds (checked 2026-09-25)."}
   - {domain: voanews.com,            name: Voice of America,          country: US, language: en,
      feeds: [https://www.voanews.com/rss/]}
-  - {domain: cnn.com,                name: CNN,                       country: US, language: en}
+  - {domain: cnn.com,                name: CNN,                       country: US, language: en,
+     feeds: [http://rss.cnn.com/rss/cnn_topstories.rss]}
   - {domain: foxnews.com,            name: Fox News,                  country: US, language: en}
   - {domain: nbcnews.com,            name: NBC News,                  country: US, language: en}
   - {domain: cbsnews.com,            name: CBS News,                  country: US, language: en}
@@ -110,7 +112,8 @@ outlets:
      note: "No articles: GDELT doesn't carry the San Francisco Chronicle, and no public RSS feed was found (checked 2026-09-25)."}
   - {domain: seattletimes.com,       name: The Seattle Times,         country: US, language: en,
      feeds: [https://www.seattletimes.com/feed/]}
-  - {domain: miamiherald.com,        name: Miami Herald,              country: US, language: en}
+  - {domain: miamiherald.com,        name: Miami Herald,              country: US, language: en,
+     note: "No articles: GDELT doesn't carry the Miami Herald, and its site doesn't answer automated requests, so its feed can't be read (checked 2026-09-25)."}
   - {domain: csmonitor.com,          name: The Christian Science Monitor, country: US, language: en}
   - {domain: theatlantic.com,        name: The Atlantic,              country: US, language: en,
      feeds: [https://www.theatlantic.com/feed/all/]}
@@ -127,7 +130,7 @@ outlets:
      feeds: [https://thehill.com/feed/]}
   - {domain: vox.com,                name: Vox,                       country: US, language: en}
   - {domain: huffpost.com,           name: HuffPost,                  country: US, language: en,
-     feeds: [https://www.huffpost.com/section/front-page/feed]}
+     note: "Few articles: GDELT carries little of HuffPost, and its RSS feed returns no articles to automated requests (checked 2026-09-25)."}
   - {domain: businessinsider.com,    name: Business Insider,          country: US, language: en}
   - {domain: breitbart.com,          name: Breitbart,                 country: US, language: en}
   - {domain: dailywire.com,          name: The Daily Wire,            country: US, language: en,
