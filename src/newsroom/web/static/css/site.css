@@ -8,6 +8,8 @@
   --accent: #0b57a4;
   --surface: #f6f6f6;
   --focus: #0b57a4;
+  --chip-bg: #e8eef6;
+  --chip-fg: #274a70;
   --font: system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, sans-serif;
   --mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
 }
@@ -21,6 +23,8 @@
     --accent: #7cb4f0;
     --surface: #1d1d1d;
     --focus: #7cb4f0;
+    --chip-bg: #24303d;
+    --chip-fg: #b9d3ee;
   }
 }
 
@@ -407,19 +411,19 @@ button {
 .tags a {
   display: inline-block;
   font-size: 0.72rem;
-  line-height: 1.5;
-  color: var(--muted);
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  padding: 0 0.55rem;
+  line-height: 1.6;
+  color: var(--chip-fg);
+  background: var(--chip-bg);
+  border-radius: 4px;
+  padding: 0 0.5rem;
   text-decoration: none;
   white-space: nowrap;
 }
 
 .tags a:hover,
 .tags a:focus-visible {
-  color: var(--accent);
-  border-color: var(--accent);
+  color: var(--bg);
+  background: var(--accent);
 }
 
 .new-articles:empty {
