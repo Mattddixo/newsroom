@@ -23,6 +23,7 @@ from pathlib import Path
 from newsroom.config import OutletConfig
 from newsroom.services.tagging import Tagger, tag_article, tag_ids
 from newsroom.sources.base import ArticleSource, QueryResult
+from newsroom.sources.pubdate import FUTURE_SKEW
 from newsroom.urls import canonical_key
 
 log = logging.getLogger(__name__)
@@ -343,13 +344,23 @@ def _store(
             if cur.rowcount == 1:
                 summary.inserted += 1
                 tag_article(conn, tagger, cur.lastrowid or 0, rec.title, ids)
-            elif stated:
-                # Already stored (e.g. from GDELT) without a date: take the source's.
+            elif rec.outlet_published_at:
+                # Already stored (e.g. from GDELT) without a date: take the source's, if
+                # it's plausible for when the article was *first* seen. (A feed is read
+                # again every run; a time in the future, rejected the first time, would
+                # otherwise be accepted hours later, once it has passed.)
                 conn.execute(
                     "UPDATE articles SET outlet_published_at = ?, pubdate_method = ?,"
                     " pubdate_checked_at = coalesce(pubdate_checked_at, ?)"
-                    " WHERE url_key = ? AND outlet_published_at IS NULL",
-                    (stated, rec.pubdate_method, retrieved, key),
+                    " WHERE url_key = ? AND outlet_published_at IS NULL"
+                    " AND published_at >= ?",
+                    (
+                        stated,
+                        rec.pubdate_method,
+                        retrieved,
+                        key,
+                        ts(rec.outlet_published_at - FUTURE_SKEW),
+                    ),
                 )
         _progress(conn, summary)  # same transaction: counts match what is saved
         conn.execute("COMMIT")

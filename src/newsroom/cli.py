@@ -485,7 +485,45 @@ def cmd_status(_: argparse.Namespace) -> int:
     return 0
 
 
+def _hours(lag: timedelta) -> str:
+    minutes = round(lag.total_seconds() / 60)
+    sign = "-" if minutes < 0 else ""
+    return f"{sign}{abs(minutes) // 60}h{abs(minutes) % 60:02d}"
+
+
+def cmd_date_audit(days: int) -> int:
+    rows = jobs.date_audit(get_settings(), days)
+    if not rows:
+        print(f"No dated articles in the last {days} days.")
+        return 0
+    print(f"Stated publication times vs. when each article was first seen, last {days} days.")
+    print("LAG is first seen minus published (median). Normal: a few minutes to an hour.\n")
+    print(f"{'OUTLET':<28} {'FROM':<5} {'DATED':>6} {'LAG':>7} {'>3H':>5} {'TZ CLASH':>8}")
+    for a in rows:
+        flag = "  CHECK" if a.suspect else ""
+        lag = _hours(a.median_lag) if a.dated else "-"
+        print(
+            f"{a.domain:<28} {a.origin:<5} {a.dated:>6} {lag:>7} {a.early:>5}"
+            f" {a.zone_conflicts:>8}{flag}"
+        )
+    suspects = [a for a in rows if a.suspect]
+    if suspects:
+        print(
+            "\nCHECK: most dates are 3+ hours before the article was first seen. That's typical"
+            " of a site labelling local time as UTC. Compare one article with its page:"
+            " make date-check URL=..."
+        )
+    if any(a.zone_conflicts for a in rows):
+        print(
+            "TZ CLASH: pages whose own date tags disagree by whole hours; they're shown as"
+            " 'Seen' rather than guessing which tag is right."
+        )
+    return 0
+
+
 def cmd_pubdates(args: argparse.Namespace) -> int:
+    if args.audit:
+        return cmd_date_audit(args.days)
     if args.explain:
         for line in jobs.explain_date(get_settings(), args.explain):
             print(line)
@@ -495,6 +533,7 @@ def cmd_pubdates(args: argparse.Namespace) -> int:
         raise ConfigError("publication dates are off (PUBDATE_FETCH) or CONTACT_EMAIL is not set")
     print(
         f"Pages read: {s.checked}. Dates found: {s.found}; no date on page: {s.no_date};"
+        f" time zones disagree on page: {s.conflicting};"
         f" robots.txt disallows: {s.robots_disallowed}; failed: {s.failed}"
         f" ({s.hosts_skipped} site(s) left alone for this run)."
     )
@@ -547,6 +586,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="show what the date check finds on one article page, and why",
     )
+    pub.add_argument(
+        "--audit",
+        action="store_true",
+        help="per outlet: stated publication times vs. when articles were first seen",
+    )
+    pub.add_argument("--days", type=int, default=7, help="days to audit (default 7)")
     pub.set_defaults(func=cmd_pubdates)
     sub.add_parser("retag", help="recompute tags after editing tags.yaml").set_defaults(
         func=cmd_retag

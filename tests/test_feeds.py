@@ -92,6 +92,15 @@ def test_atom_and_rdf() -> None:
     assert rdf.title == "RDF story" and rdf.outlet_published_at.hour == 8  # type: ignore[union-attr]
 
 
+def test_atom_updated_is_not_a_publication_date() -> None:
+    body = b"""<feed xmlns="http://www.w3.org/2005/Atom"><entry><title>Edited</title>
+      <link href="https://example.ca/news/e"/><updated>2026-09-25T13:00:00Z</updated>
+    </entry></feed>"""
+    result = records(body)
+    [item] = result.records
+    assert item.outlet_published_at is None and result.undated == 1  # its page is checked
+
+
 def test_other_domains_are_the_outlets_own() -> None:
     body = RSS.replace(b"ads.elsewhere.com", b"www.example-old.ca")
     got = records(body, aliases=["example-old.ca"])
@@ -444,3 +453,46 @@ def test_suggested_feeds_line_is_valid_yaml(
     line = next(x for x in capsys.readouterr().out.splitlines() if "suggested" in x)
     pasted = line.split("suggested for outlets.yaml:", 1)[1].strip()
     assert yaml.safe_load("{" + pasted + "}") == {"feeds": [url]}
+
+
+def test_future_feed_date_is_not_accepted_later(conn: sqlite3.Connection) -> None:
+    # A feed labelling UTC wall-clock time with the local offset: 4 h in the future.
+    body = b"""<rss><channel><item><title>Ahead</title>
+      <link>https://example.ca/news/ahead</link>
+      <pubDate>Fri, 25 Sep 2026 14:00:00 -0400</pubDate></item></channel></rss>"""
+    fetch, _ = fetcher({"https://feeds.example.ca/top.xml": body})
+    robots = Robots(lambda u: "")
+    for hours in (0, 5):  # read again once the stated time has passed
+        run_feeds(
+            conn,
+            fetch,
+            robots,
+            Tagger(TAGS),
+            now=NOW + timedelta(hours=hours),
+            sleep=lambda x: None,
+        )
+    row = conn.execute(
+        "SELECT outlet_published_at, published_at FROM articles"
+        " WHERE url = 'https://example.ca/news/ahead'"
+    ).fetchone()
+    assert row["published_at"] == "2026-09-25T14:00:00Z"  # first seen
+    assert row["outlet_published_at"] is None  # 18:00Z is after that: not a publication time
+
+
+def test_migration_clears_dates_after_first_seen(conn: sqlite3.Connection) -> None:
+    conn.executemany(
+        "INSERT INTO articles (url, url_key, title, outlet_id, published_at, source, source_url,"
+        " retrieved_at, outlet_published_at, pubdate_method, pubdate_checked_at)"
+        " VALUES (?, ?, 't', 1, '2026-09-25T14:00:00Z', 'feeds', 'f', '2026-09-25T14:00:00Z',"
+        " ?, ?, '2026-09-25T14:00:00Z')",
+        [
+            ("https://example.ca/a", "a", "2026-09-25T18:00:00Z", "feed pubdate"),  # after
+            ("https://example.ca/b", "b", "2026-09-25T14:50:00Z", "feed pubdate"),  # skew
+            ("https://example.ca/c", "c", "2026-09-25T13:00:00Z", "feed updated"),
+            ("https://example.ca/d", "d", "2026-09-25T13:00:00Z", "feed pubdate"),
+        ],
+    )
+    sql = Path(__file__).parents[1] / "src/newsroom/migrations/0009_implausible_dates.sql"
+    conn.executescript(sql.read_text())
+    kept = dict(conn.execute("SELECT url_key, outlet_published_at FROM articles").fetchall())
+    assert kept == {"a": None, "b": "2026-09-25T14:50:00Z", "c": None, "d": "2026-09-25T13:00:00Z"}

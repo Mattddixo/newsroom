@@ -114,7 +114,9 @@ def _item_link(el: Element, atom: bool, base: str) -> str:
 
 
 def _item_date(el: Element, atom: bool) -> tuple[datetime | None, str | None]:
-    fields = ("published", "updated") if atom else ("pubdate", "date", "published")
+    # Atom's <updated> is the last edit, not publication: an entry without <published>
+    # counts as undated (its page is checked instead).
+    fields = ("published",) if atom else ("pubdate", "date", "published")
     for name in fields:
         when = parse_feed_date(_text(_child(el, name)))
         if when:

@@ -32,6 +32,7 @@ from newsroom.sources.gdelt_files import GkgFilesSource, scan_hosts, slots_betwe
 from newsroom.sources.pubdate import (
     EARLIEST,
     FUTURE_SKEW,
+    DateConflict,
     Robots,
     candidates,
     extract,
@@ -255,6 +256,8 @@ def explain_date(settings: Settings, url: str) -> list[str]:
             why = "rejected: later than GDELT saw the article"
         elif when < EARLIEST:
             why = "rejected: before 1995"
+        elif isinstance(found, DateConflict):
+            why = f"valid on its own ({ts(when)})"
         elif found and found.method == method and found.when == when:
             why = "USED"
         else:
@@ -262,7 +265,17 @@ def explain_date(settings: Settings, url: str) -> list[str]:
         lines.append(f"  {method}: {str(raw)[:60]!r} -> {why}")
     if not listed:
         lines.append("  no date tags in the page's metadata")
-    lines.append(f"result: {ts(found.when) + ' (' + found.method + ')' if found else 'no date'}")
+    if isinstance(found, DateConflict):
+        (m1, t1), (m2, t2) = found.first, found.second
+        hours = abs(t1 - t2) // timedelta(hours=1)
+        lines.append(
+            f"result: no date. {m1} ({ts(t1)}) and {m2} ({ts(t2)}) are {hours} h apart,"
+            " so the page gets a time zone wrong and neither can be trusted"
+        )
+    else:
+        lines.append(
+            f"result: {ts(found.when) + ' (' + found.method + ')' if found else 'no date'}"
+        )
     return lines
 
 
@@ -278,6 +291,14 @@ def publication_dates(
         finally:
             conn.close()
     return summary
+
+
+def date_audit(settings: Settings, days: int = 7) -> list[pubdates.DateAudit]:
+    conn = connect(settings.db_path)
+    try:
+        return pubdates.audit_dates(conn, datetime.now(UTC), days)
+    finally:
+        conn.close()
 
 
 def retag(settings: Settings) -> int:

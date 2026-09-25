@@ -107,6 +107,7 @@ for Tailscale at boot.
 | `make feeds`       | Test outlets' RSS feeds; suggest feeds for outlets GDELT barely carries |
 | `make coverage`    | Which outlets GDELT's recent files contain, and under which addresses (`HOURS=6`) |
 | `make date-check URL=…` | Explain the date check for one article: robots.txt verdict, every date tag found, which was used and why |
+| `make date-audit [DAYS=7]` | Per outlet, feed and page dates vs. when articles were first seen; flags outlets whose dates look like a time zone error |
 | `make unmatched`   | Outlets without a Wikidata match, with candidate items               |
 | `make ownership`   | Re-resolve ownership for every outlet now                            |
 | `make funding`     | Look up funding records now and apply `config/public_funding.yaml`   |

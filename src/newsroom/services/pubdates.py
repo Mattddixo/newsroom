@@ -19,13 +19,14 @@ from datetime import UTC, datetime, timedelta
 
 from newsroom.net.safe_fetch import FetchBlocked, FetchResult
 from newsroom.services.ingest import parse_ts, ts
-from newsroom.sources.pubdate import DISALLOWED, UNAVAILABLE, Robots, extract
+from newsroom.sources.pubdate import DISALLOWED, UNAVAILABLE, DateConflict, Robots, extract
 from newsroom.urls import host_of
 
 log = logging.getLogger(__name__)
 
 MAX_ATTEMPTS = 2
 HOST_BACKOFF_STATUSES = frozenset({401, 403, 429})
+ZONE_CONFLICT = "time zones disagree in page metadata"
 
 # fetch_page(url, outlet_domain) -> FetchResult
 PageFetcher = Callable[[str, str], FetchResult]
@@ -36,6 +37,7 @@ class PubDateSummary:
     checked: int = 0
     found: int = 0
     no_date: int = 0
+    conflicting: int = 0
     robots_disallowed: int = 0
     failed: int = 0
     hosts_skipped: int = 0
@@ -110,7 +112,11 @@ def refresh_pub_dates(
                 log.info("leaving host alone this run", extra={"host": host, "status": exc.status})
             continue
         found = extract(page.body.decode("utf-8", errors="replace"), parse_ts(row["published_at"]))
-        if found:
+        if isinstance(found, DateConflict):
+            # The page's tags disagree about the time zone: no telling which is right.
+            summary.conflicting += 1
+            record(row["id"], str(MAX_ATTEMPTS), None, ZONE_CONFLICT)
+        elif found:
             summary.found += 1
             record(row["id"], "pubdate_attempts + 1", ts(found.when), found.method)
         else:
@@ -118,3 +124,58 @@ def refresh_pub_dates(
             record(row["id"], str(MAX_ATTEMPTS), None, "no date in page metadata")
     log.info("publication dates checked", extra=vars(summary))
     return summary
+
+
+# ------------------------------------------------------------------ audit
+
+SUSPECT_LAG = timedelta(hours=3)
+
+
+@dataclass
+class DateAudit:
+    domain: str
+    origin: str  # "feed" (the outlet's RSS feed) or "page" (the article page's metadata)
+    dated: int
+    median_lag: timedelta  # first seen minus stated publication time
+    early: int  # stated more than SUSPECT_LAG before first seen
+    zone_conflicts: int  # pages whose own tags disagree by whole hours
+
+    @property
+    def suspect(self) -> bool:
+        """Most of the outlet's dates are hours before it was seen: typical of a time
+        zone error (local time labelled as UTC), though a slow source looks the same."""
+        return self.dated >= 5 and self.median_lag >= SUSPECT_LAG
+
+
+def audit_dates(conn: sqlite3.Connection, now: datetime, days: int = 7) -> list[DateAudit]:
+    """How each outlet's stated publication times compare with when articles were first
+    seen, over the last `days`. Read-only."""
+    rows = conn.execute(
+        "SELECT o.domain, a.published_at, a.outlet_published_at, a.pubdate_method"
+        " FROM articles a JOIN outlets o ON o.id = a.outlet_id"
+        " WHERE a.published_at >= ?"
+        " AND (a.outlet_published_at IS NOT NULL OR a.pubdate_method = ?)",
+        (ts(now - timedelta(days=days)), ZONE_CONFLICT),
+    ).fetchall()
+    lags: dict[tuple[str, str], list[timedelta]] = {}
+    conflicts: dict[str, int] = {}
+    for r in rows:
+        if r["outlet_published_at"] is None:
+            conflicts[r["domain"]] = conflicts.get(r["domain"], 0) + 1
+            continue
+        origin = "feed" if (r["pubdate_method"] or "").startswith("feed ") else "page"
+        lag = parse_ts(r["published_at"]) - parse_ts(r["outlet_published_at"])
+        lags.setdefault((r["domain"], origin), []).append(lag)
+    out = [
+        DateAudit(
+            domain,
+            origin,
+            len(values),
+            sorted(values)[len(values) // 2],
+            sum(v > SUSPECT_LAG for v in values),
+            conflicts.pop(domain, 0) if origin == "page" else 0,
+        )
+        for (domain, origin), values in lags.items()
+    ]
+    out += [DateAudit(d, "page", 0, timedelta(0), 0, n) for d, n in conflicts.items()]
+    return sorted(out, key=lambda a: (not a.suspect, -a.zone_conflicts, a.domain, a.origin))

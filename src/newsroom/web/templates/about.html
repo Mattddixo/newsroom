@@ -25,6 +25,7 @@
 
 <h3 id="dates">Dates</h3>
 <p>An outlet's RSS feed states when each article was published, and that time is used. GDELT only records when it found an article, so for those the site checks each new article's page for its publication date, the same date search engines use. Only the date is kept. New articles appear once their date has been checked, usually within a minute of being collected, so they show the right time from the start. Each page is checked at most twice, and each site's robots.txt is respected.</p>
+<p>A date isn't used if it's later than when the article was first picked up, or if the page's own date tags contradict each other about the time zone. Those articles show when they were seen instead.</p>
 
 <h2 id="ownership">Ownership</h2>
 <p>Each outlet is matched to its Wikidata entry by its website, and the outlet page says how the match was made. From there the site follows "owned by" and "parent organization" upward, up to ten levels. Only current records are used, and ownership is rechecked weekly. Any link added by hand is labelled and cites its own source.</p>

@@ -11,11 +11,11 @@ from fastapi.testclient import TestClient
 
 from newsroom.net.safe_fetch import FetchBlocked, FetchResult
 from newsroom.services.ingest import run_ingest
-from newsroom.services.pubdates import refresh_pub_dates
+from newsroom.services.pubdates import ZONE_CONFLICT, audit_dates, refresh_pub_dates
 from newsroom.services.tagging import Tagger
 from newsroom.settings import Settings
 from newsroom.sources.base import QueryResult
-from newsroom.sources.pubdate import Robots, extract, parse_timestamp
+from newsroom.sources.pubdate import DateConflict, Robots, extract, parse_timestamp
 from newsroom.web.app import create_app
 from tests.helpers import TAGS, FakeSource, make_db, rec
 
@@ -96,6 +96,33 @@ def test_publication_just_after_seen_is_allowed_for_clock_skew() -> None:
     assert extract(html, SEEN) is not None
     html = '<meta property="article:published_time" content="2026-09-24T04:30:00Z">'
     assert extract(html, SEEN) is None
+
+
+def test_tags_that_disagree_by_whole_hours_mean_no_date() -> None:
+    # The same wall-clock time in two zones: one tag gets the time zone wrong.
+    html = (
+        '<meta property="article:published_time" content="2026-09-23T18:50:00-04:00">'
+        '<meta name="parsely-pub-date" content="2026-09-23T18:50:00Z">'
+    )
+    found = extract(html, SEEN)
+    assert isinstance(found, DateConflict)
+    assert {found.first[0], found.second[0]} == {"article:published_time", "meta parsely-pub-date"}
+
+
+@pytest.mark.parametrize(
+    "second",
+    [
+        '<meta name="parsely-pub-date" content="2026-09-23T22:50:00Z">',  # same instant
+        '<meta name="parsely-pub-date" content="2026-09-23T22:53:00Z">',  # minutes apart
+        # the untyped fallback can be anything on the page (a related article, the site)
+        '<script type="application/ld+json">{"datePublished": "2026-09-23T20:50:00Z"}</script>',
+    ],
+)
+def test_agreeing_or_unrelated_tags_are_not_a_conflict(second: str) -> None:
+    html = f'<meta property="article:published_time" content="2026-09-23T18:50:00-04:00">{second}'
+    found = extract(html, SEEN)
+    assert not isinstance(found, DateConflict)
+    assert found and found.when == datetime(2026, 9, 23, 22, 50, tzinfo=UTC)
 
 
 # ------------------------------------------------------------------ robots.txt
@@ -412,3 +439,48 @@ def test_explain_shows_each_step(
         jobs.explain_date(settings, "https://example.com/not-an-outlet")
     with pytest.raises(ValueError):
         jobs.explain_date(settings, "javascript:alert(1)")
+
+
+def test_conflicting_page_is_left_undated(conn: sqlite3.Connection) -> None:
+    html = (
+        '<meta property="article:published_time" content="2026-09-23T22:50:00-04:00">'
+        '<meta name="sailthru.date" content="2026-09-23T22:50:00Z">'
+    )
+    s = refresh_pub_dates(
+        conn,
+        lambda url, d: html_result(url, html),
+        Robots(lambda u: ""),
+        NOW,
+        limit=1,
+        sleep=lambda x: None,
+    )
+    assert s.conflicting == 1 and s.found == 0
+    one = row(conn, "https://cbc.ca/news/1")
+    assert one["outlet_published_at"] is None and one["pubdate_method"] == ZONE_CONFLICT
+    assert one["pubdate_attempts"] == 2  # the page won't change its mind: done
+
+
+def test_date_audit_flags_dates_hours_before_first_seen(conn: sqlite3.Connection) -> None:
+    # nytimes: every date 4 h before GDELT saw it (local time labelled as UTC)
+    conn.execute(
+        "UPDATE articles SET outlet_published_at ="
+        " strftime('%Y-%m-%dT%H:%M:%SZ', published_at, '-4 hours', '-10 minutes'),"
+        " pubdate_method = 'article:published_time'"
+        " WHERE url LIKE 'https://www.nytimes.com/%'"
+    )
+    conn.execute(
+        "UPDATE articles SET outlet_published_at ="
+        " strftime('%Y-%m-%dT%H:%M:%SZ', published_at, '-12 minutes'),"
+        " pubdate_method = 'feed pubdate' WHERE url = 'https://cbc.ca/news/1'"
+    )
+    conn.execute(
+        "UPDATE articles SET pubdate_method = ? WHERE url = 'https://cbc.ca/news/2'",
+        (ZONE_CONFLICT,),
+    )
+    rows = {(a.domain, a.origin): a for a in audit_dates(conn, NOW)}
+    ny = rows[("nytimes.com", "page")]
+    assert ny.dated == 2 and ny.early == 2 and ny.median_lag == timedelta(hours=4, minutes=10)
+    assert not ny.suspect  # too few articles to judge
+    cbc_feed = rows[("cbc.ca", "feed")]
+    assert cbc_feed.median_lag == timedelta(minutes=12) and cbc_feed.early == 0
+    assert rows[("cbc.ca", "page")].zone_conflicts == 1  # the old article is outside 7 days

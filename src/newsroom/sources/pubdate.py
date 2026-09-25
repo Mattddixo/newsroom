@@ -13,6 +13,10 @@ Sources, in priority order (the first valid one wins):
 
 A value is only accepted if it has a time zone (otherwise the instant is ambiguous),
 is not after GDELT saw the article (+1 h for clock skew), and is not before 1995.
+
+If the page's own tags for the article disagree by a whole number of hours (18:50-04:00
+in one, 18:50Z in another), the page gets a time zone wrong and there's no telling which
+tag is right, so the page counts as giving no date.
 """
 
 from __future__ import annotations
@@ -141,14 +145,50 @@ class PublishedDate:
     method: str
 
 
-def extract(html: str, seen: datetime) -> PublishedDate | None:
+@dataclass(frozen=True)
+class DateConflict:
+    """Two of the page's tags for the article differ by whole hours: a time zone error."""
+
+    first: tuple[str, datetime]
+    second: tuple[str, datetime]
+
+
+# Tags that describe the article itself. The untyped JSON-LD fallback is left out: it can
+# belong to anything on the page (a related article, the site).
+_OWN_TAGS = frozenset(
+    {"schema.org datePublished", "article:published_time", "itemprop datePublished"}
+    | {f"meta {name}" for name in META_NAMES}
+)
+MAX_ZONE_OFFSET = timedelta(hours=14)
+
+
+def zone_conflict(values: list[tuple[str, datetime]]) -> DateConflict | None:
+    """The first pair of values that differ by a whole number of hours (up to 14, the
+    largest UTC offset): the same wall-clock time read in two different time zones."""
+    for i, (method_a, a) in enumerate(values):
+        for method_b, b in values[i + 1 :]:
+            gap = abs(a - b)
+            if timedelta(0) < gap <= MAX_ZONE_OFFSET and gap % timedelta(hours=1) == timedelta(0):
+                return DateConflict((method_a, a), (method_b, b))
+    return None
+
+
+def extract(html: str, seen: datetime) -> PublishedDate | DateConflict | None:
     """The first candidate that is a plausible publication time for an article GDELT saw
-    at `seen`."""
+    at `seen`; a DateConflict if the page's own tags contradict each other."""
+    found: PublishedDate | None = None
+    own: dict[str, datetime] = {}  # first value of each of the article's own tags
     for method, raw in candidates(html):
         when = parse_timestamp(raw)
-        if when and EARLIEST <= when <= seen + FUTURE_SKEW:
-            return PublishedDate(when, method)
-    return None
+        if when is None:
+            continue
+        if method in _OWN_TAGS:
+            own.setdefault(method, when)
+        if found is None and EARLIEST <= when <= seen + FUTURE_SKEW:
+            found = PublishedDate(when, method)
+    if found is None:
+        return None
+    return zone_conflict(list(own.items())) or found
 
 
 # ------------------------------------------------------------------ robots.txt

@@ -2,7 +2,7 @@
 COMPOSE := docker compose
 
 .DEFAULT_GOAL := help
-.PHONY: help setup init host-setup up down restart logs ps status shell ingest-now retag config-check date-check coverage feeds outlets unmatched ownership funding backup-db migrate test audit verify lint
+.PHONY: help setup init host-setup up down restart logs ps status shell ingest-now retag config-check date-check date-audit coverage feeds outlets unmatched ownership funding backup-db migrate test audit verify lint
 
 help: ## List targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  %-12s %s\n", $$1, $$2}'
@@ -54,6 +54,9 @@ config-check: ## Validate config/outlets.yaml and config/tags.yaml
 date-check: ## Explain the date check for one article: make date-check URL=https://...
 	@test -n "$(URL)" || (echo "usage: make date-check URL=https://..." && exit 2)
 	$(COMPOSE) exec worker newsroom pubdates --explain "$(URL)"
+
+date-audit: ## Per outlet: stated publication times vs. when articles were first seen
+	$(COMPOSE) exec worker newsroom pubdates --audit --days $(or $(DAYS),7)
 
 coverage: ## Which outlets GDELT carries, and under which addresses (HOURS=6)
 	$(COMPOSE) exec worker newsroom outlets coverage --hours $(or $(HOURS),6)
