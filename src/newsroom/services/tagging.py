@@ -5,7 +5,8 @@
    passing mention doesn't count.
 2. The outlet's own section and topic labels from the article page's metadata
    (article:section, article:tag, schema.org articleSection/keywords, news_keywords),
-   for articles GDELT's themes give no tag. Matched as whole labels.
+   for articles GDELT's themes give no tag, and always for tags GDELT has no themes
+   for (sports, arts). Matched as whole labels.
 
 Each tag records its evidence (which themes, or which section), shown on hover. Only
 theme names and labels are stored, never article text, so `newsroom retag` can recompute
@@ -29,6 +30,7 @@ class Tagger:
     def __init__(self, tags: Sequence[TagConfig]) -> None:
         self.tags = list(tags)
         self.themes = frozenset(t for tag in self.tags for t in tag.gdelt)
+        self.sections_only = frozenset(tag.slug for tag in self.tags if not tag.gdelt)
 
     def from_themes(self, counts: Mapping[str, int]) -> dict[str, str]:
         """{slug: evidence} for tags whose GDELT themes are mentioned often enough."""
@@ -58,8 +60,13 @@ class Tagger:
         return found
 
     def match(self, themes: Mapping[str, int], sections: Iterable[str]) -> dict[str, str]:
-        """GDELT's themes first; the outlet's own sections only if they give no tag."""
-        return self.from_themes(themes) or self.from_sections(sections)
+        """GDELT's themes first; the outlet's own sections only if they give no tag. Tags
+        GDELT has no themes for (sports, arts) always come from the sections."""
+        by_sections = self.from_sections(sections)
+        by_themes = self.from_themes(themes)
+        if not by_themes:
+            return by_sections
+        return by_themes | {s: e for s, e in by_sections.items() if s in self.sections_only}
 
 
 # ------------------------------------------------------------------ storage

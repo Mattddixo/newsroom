@@ -13,3 +13,6 @@ tags:
     gdelt: [ELECTION]
     gdelt_min_mentions: 2
     sections: [elections]
+  sports:
+    label: Sports
+    sections: [sports, hockey]

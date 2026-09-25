@@ -81,6 +81,11 @@ def test_tags_from_gdelt_themes_and_outlet_sections() -> None:
     # GDELT first; the outlet's sections only when GDELT's themes give no tag
     assert set(tagger.match({"ELECTION": 5}, ["Housing"])) == {"elections"}
     assert set(tagger.match({"ELECTION": 1}, ["Housing"])) == {"housing"}
+    # tags GDELT has no themes for come from the sections even when GDELT gave tags
+    assert set(tagger.match({"ELECTION": 5}, ["Sports > Hockey", "Housing"])) == {
+        "elections",
+        "sports",
+    }
 
 
 @pytest.mark.parametrize(

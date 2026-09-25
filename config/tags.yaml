@@ -6,6 +6,7 @@
 #             full list: http://data.gdeltproject.org/api/v2/guides/LOOKUP-GKGTHEMES.TXT
 #   sections: the outlet's own section / topic labels on the article page (article:section,
 #             article:tag, articleSection...), for articles GDELT's themes give no tag.
+#             Tags with no gdelt themes (sports, arts) always come from sections.
 #             Whole labels, case- and accent-insensitive; "News > Health" counts as "health".
 #
 # After editing: docker compose exec worker newsroom retag
@@ -106,3 +107,116 @@ tags:
     gdelt: [MEDIA_CENSORSHIP, FREESPEECH, INTERNET_CENSORSHIP,
             WB_2387_BROADCASTING_INDUSTRY_AND_MARKETS]
     sections: [media, journalism, médias, journalisme]
+  military:
+    label: Military & defence
+    gdelt: [MILITARY, MILITARY_COOPERATION, SLFID_MILITARY_SPENDING, MIL_SELF_IDENTIFIED_ARMS_DEAL,
+            MIL_WEAPONS_PROLIFERATION, SOC_POINTSOFINTEREST_MILITARY_BASE,
+            SOC_POINTSOFINTEREST_MILITARY_BASES]
+    sections: [military, defence, defense, national defence, armed forces, défense,
+               forces armées, défense nationale]
+  conflict:
+    label: War & conflict
+    gdelt: [ARMEDCONFLICT, CEASEFIRE, REBELLION, INSURGENCY, WB_2451_REBELS_GUERRILLAS_AND_INSURGENTS,
+            WB_2464_INSURGENCY, SEIGE, BLOCKADE, PEACEKEEPING, WB_2510_WAR_CRIMES,
+            WB_2480_POST_CONFLICT_RECONSTRUCTION, TAX_WEAPONS_ARTILLERY, TAX_WEAPONS_DRONE_STRIKE, WMD]
+    sections: [war, conflict, war and conflict, guerre, conflits]
+  terrorism:
+    label: Terrorism
+    gdelt: [TERROR, WB_2467_TERRORISM, WB_2492_COUNTER_TERRORISM]
+    sections: [terrorism, terrorisme]
+  diplomacy:
+    label: Foreign affairs & diplomacy
+    gdelt: [WB_2473_DIPLOMACY_AND_NEGOTIATIONS, SANCTIONS, TAX_FNCACT_FOREIGN_MINISTER,
+            TAX_FNCACT_FOREIGN_MINISTERS, TAX_FNCACT_DIPLOMAT, TAX_FNCACT_DIPLOMATS]
+    sections: [foreign affairs, foreign policy, diplomacy, international relations,
+               affaires étrangères, diplomatie, relations internationales]
+  politics:
+    label: Politics & government
+    gdelt: [LEGISLATION, EPU_POLICY_LEGISLATION, IMPEACHMENT, VETO,
+            EPU_CATS_DEBT_CEILING_GOV_SHUTDOWN, GOV_INTERGOVERNMENTAL, GOV_LOCALGOV]
+    gdelt_min_mentions: 4
+    sections: [politics, government, federal politics, provincial politics, parliament,
+               us politics, politique, politique fédérale, politique provinciale]
+  corruption:
+    label: Corruption & ethics
+    gdelt: [CORRUPTION, WB_2020_BRIBERY_FRAUD_AND_COLLUSION, WB_832_ANTI_CORRUPTION,
+            WB_2019_ANTI_CORRUPTION_LEGISLATION, WB_2089_ETHICS_AND_CODES_OF_CONDUCT]
+    sections: [corruption, ethics, éthique]
+  crime:
+    label: Crime & policing
+    gdelt: [SOC_GENERALCRIME, ARREST, CRIME_COMMON_ROBBERY, KIDNAP, ORGANIZED_CRIME,
+            WB_2453_ORGANIZED_CRIME, CRIME_CARTELS, HUMAN_TRAFFICKING,
+            WB_1934_CIVILLIAN_POLICE_AND_SECURITY_SERVICES, UNREST_POLICEBRUTALITY,
+            HUMAN_RIGHTS_ABUSES_POLICE_BRUTALITY, UNREST_SELF_IDENTIFIED_HATE_CRIME]
+    gdelt_min_mentions: 4
+    sections: [crime, police, policing, public safety, crime and justice, faits divers,
+               criminalité, sécurité publique]
+  drugs:
+    label: Drugs & addiction
+    gdelt: [WB_2456_DRUGS_AND_NARCOTICS, DRUG_TRADE, CRIME_ILLEGAL_DRUGS, TAX_DISEASE_DRUG_OVERDOSE,
+            TAX_DISEASE_DRUG_DEPENDENCE]
+    sections: [drugs, opioids, addiction, opioid crisis, drogues, opioïdes, dépendances]
+  rights:
+    label: Rights & equality
+    gdelt: [WB_2203_HUMAN_RIGHTS, HUMAN_RIGHTS_ABUSES, WB_2507_HUMAN_RIGHTS_ABUSES_AND_VIOLATIONS,
+            DISCRIMINATION, DISCRIMINATION_RACE, DISCRIMINATION_RACE_RACISM, LGBT,
+            UNGP_GENDER_EQUALITY, GENDER_VIOLENCE]
+    sections: [human rights, civil rights, equality, lgbtq, lgbtq+, race, racism,
+               droits de la personne, droits de l'homme, égalité]
+  protests:
+    label: Protests
+    gdelt: [PROTEST, TAX_FNCACT_DEMONSTRATORS, TAX_FNCACT_DEMONSTRATOR]
+    sections: [protests, protest, manifestations]
+  poverty:
+    label: Poverty & inequality
+    gdelt: [POVERTY, WB_695_POVERTY, INEQUALITY, INCOME_INEQUALITY, WB_2668_INCOME_INEQUALITY,
+            WB_700_INEQUALITY_AND_SHARED_PROSPERITY]
+    sections: [poverty, inequality, pauvreté, inégalités]
+  education:
+    label: Education
+    gdelt: [EDUCATION, WB_470_EDUCATION, UNGP_EDUCATION, WB_482_TERTIARY_EDUCATION,
+            WB_478_LEVELS_OF_EDUCATION, WB_2141_EDUCATION_DISTRICTS,
+            WB_1497_EDUCATION_MANAGEMENT_AND_ADMINISTRATION]
+    gdelt_min_mentions: 4
+    sections: [education, schools, universities, higher education, éducation, écoles,
+               enseignement]
+  transportation:
+    label: Transportation
+    gdelt: [PUBLIC_TRANSPORT, WB_135_TRANSPORT, WB_1803_TRANSPORT_INFRASTRUCTURE, WB_166_RAILWAYS,
+            WB_165_AIR_TRANSPORT, WB_1804_AIRPORTS, WB_168_ROADS_AND_HIGHWAYS, WB_167_PORTS,
+            UNGP_TRANSPORTATION_ROADS, WB_1808_TRANSPORT_SAFETY]
+    sections: [transportation, transport, transit, traffic, commuting, transports]
+  disasters:
+    label: Disasters & severe weather
+    gdelt: [NATURAL_DISASTER_EARTHQUAKE, NATURAL_DISASTER_EARTHQUAKES, NATURAL_DISASTER_FLOOD,
+            NATURAL_DISASTER_FLOODS, NATURAL_DISASTER_FLOODING, NATURAL_DISASTER_HURRICANE,
+            NATURAL_DISASTER_HURRICANES, NATURAL_DISASTER_TORNADO, NATURAL_DISASTER_TYPHOON,
+            NATURAL_DISASTER_CYCLONE, NATURAL_DISASTER_TSUNAMI, NATURAL_DISASTER_DROUGHT,
+            NATURAL_DISASTER_LANDSLIDE, NATURAL_DISASTER_LANDSLIDES, NATURAL_DISASTER_AVALANCHE,
+            NATURAL_DISASTER_VOLCANO, NATURAL_DISASTER_HEAT_WAVE, NATURAL_DISASTER_HEATWAVE,
+            NATURAL_DISASTER_EXTREME_WEATHER, NATURAL_DISASTER_BLIZZARD,
+            NATURAL_DISASTER_WINTER_STORM, NATURAL_DISASTER_SNOWSTORM, NATURAL_DISASTER_STORM_SURGE]
+    sections: [weather, severe weather, disasters, natural disasters, météo, catastrophes]
+  agriculture:
+    label: Agriculture & food
+    gdelt: [AGRICULTURE, WB_435_AGRICULTURE_AND_FOOD_SECURITY, FOOD_SECURITY, WB_199_FOOD_SECURITY,
+            WB_174_CROP_PRODUCTION, WB_170_AGRICULTURAL_POLICIES, ENV_FISHERY]
+    sections: [agriculture, farming, agriculture et alimentation]
+  science:
+    label: Science & space
+    gdelt: [SCIENCE, TAX_FNCACT_SCIENTIST, TAX_FNCACT_ASTRONAUT, TAX_FNCACT_ASTRONOMER]
+    sections: [science, space, science & space, sciences, espace]
+  religion:
+    label: Religion
+    gdelt: [RELIGION]
+    sections: [religion, faith, religions]
+  # GDELT has no usable themes for these two; outlets' own sections are near universal.
+  sports:
+    label: Sports
+    sections: [sports, sport, hockey, nhl, nfl, nba, mlb, soccer, football, basketball, baseball,
+               cfl, olympics, sports et loisirs]
+  arts:
+    label: Arts & culture
+    sections: [arts, culture, arts & culture, arts and culture, entertainment, music, movies,
+               film, books, television, tv, theatre, celebrity, arts et spectacles, spectacles,
+               musique, cinéma, livres, télévision]
