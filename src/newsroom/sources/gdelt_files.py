@@ -142,11 +142,7 @@ def main_places(v2locations: str) -> tuple[tuple[str, int], ...]:
         if len(fields) > 2 and _COUNTRY.match(fields[2]):
             counts[fields[2]] = counts.get(fields[2], 0) + 1
     total = sum(counts.values())
-    kept = [
-        (c, n)
-        for c, n in counts.items()
-        if n >= MIN_MENTIONS and n >= MIN_PLACE_SHARE * total
-    ]
+    kept = [(c, n) for c, n in counts.items() if n >= MIN_MENTIONS and n >= MIN_PLACE_SHARE * total]
     return tuple(sorted(kept, key=lambda cn: (-cn[1], cn[0]))[:MAX_PLACES])
 
 

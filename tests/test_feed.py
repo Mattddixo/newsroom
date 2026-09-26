@@ -572,3 +572,14 @@ def test_search_terms_show_what_matched() -> None:
         "<mark>Quebec</mark> <mark>mar</mark>chers, Québecois"
     )
     assert queries.SearchTerms.parse("  ") is None
+
+
+def test_stylesheet_url_changes_with_its_content(client: TestClient) -> None:
+    html = client.get("/").text
+    m = re.search(r'<link rel="stylesheet" href="(/static/css/site\.css\?v=([0-9a-f]{10}))">', html)
+    assert m, "stylesheet linked with a content fingerprint"
+    css = client.get(m.group(1))
+    assert css.status_code == 200 and "--mark-bg" in css.text
+    import hashlib
+
+    assert hashlib.sha256(css.content).hexdigest()[:10] == m.group(2)

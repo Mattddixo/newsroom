@@ -7,9 +7,9 @@
   <meta name="referrer" content="no-referrer">
   <meta name="htmx-config" content='{"includeIndicatorStyles": false, "allowEval": false, "allowScriptTags": false, "selfRequestsOnly": true, "historyCacheSize": 0, "refreshOnHistoryMiss": true}'>
   <title>{% block title %}newsroom{% endblock %}</title>
-  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/static/css/site.css">
-  <script src="/static/js/htmx.min.js" defer></script>
+  <link rel="icon" href="{{ asset['favicon.svg'] }}" type="image/svg+xml">
+  <link rel="stylesheet" href="{{ asset['css/site.css'] }}">
+  <script src="{{ asset['js/htmx.min.js'] }}" defer></script>
 </head>
 <body hx-boost="true">
   <a class="skip" href="#main">Skip to content</a>

@@ -94,8 +94,7 @@ class FeedFilters:
         """Current state as query params for links. Defaults are left out (clean URLs);
         pass page=..., sort=... etc. to change one thing."""
         values = {
-            key: ""
-            for key in ("q", "tag", "outlet", "place", "country", "owner", "from", "to")
+            key: "" for key in ("q", "tag", "outlet", "place", "country", "owner", "from", "to")
         }  # fixed order, so URLs read the same however they were built
         values.update(self.filter_params())
         values.update(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import re
 import sqlite3
@@ -70,6 +71,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     templates.env.globals["day_label"] = lambda d: _day_label(d, datetime.now(tz).date())
     templates.env.filters["pct"] = lambda v: f"{v * 100:.4g}%"
     templates.env.filters["article_date"] = lambda d: _article_date(d, datetime.now(tz))
+    templates.env.globals["asset"] = _asset_urls(HERE / "static")
     templates.env.filters["money"] = _money
     templates.env.filters["highlight"] = _highlight
     templates.env.filters["matched"] = _matched
@@ -340,6 +342,19 @@ OWNER_SORTS = {
 def _table_sort(request: Request, allowed: dict, default: str) -> str:
     value = request.query_params.get("sort", default)
     return value if value in allowed else default
+
+
+def _asset_urls(static: Path) -> dict[str, str]:
+    """/static URLs with a fingerprint of each file's content (?v=...), so a browser
+    fetches a stylesheet or script again as soon as it changes instead of reusing a
+    cached copy of the old one."""
+    urls = {}
+    for path in static.rglob("*"):
+        if path.is_file():
+            rel = path.relative_to(static).as_posix()
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()[:10]
+            urls[rel] = f"/static/{rel}?v={digest}"
+    return urls
 
 
 def _highlight(text: str, q: str) -> Markup | str:
