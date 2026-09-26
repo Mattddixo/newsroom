@@ -10,7 +10,13 @@ from datetime import UTC, datetime, timedelta
 from urllib.parse import urljoin, urlsplit, urlunsplit
 from zoneinfo import ZoneInfo
 
-from newsroom.config import ConfigError, load_curated_funding, load_outlets, load_tags
+from newsroom.config import (
+    ConfigError,
+    load_curated_funding,
+    load_outlets,
+    load_ownership_corrections,
+    load_tags,
+)
 from newsroom.db import connect
 from newsroom.net.http import ApiClient, ApiError
 from newsroom.net.safe_fetch import FetchBlocked, FetchResult, safe_fetch
@@ -399,7 +405,10 @@ def resolve_ownership(
                 known = {o["domain"] for o in outlets}
                 raise LookupError(f"unknown outlet(s): {', '.join(sorted(set(domains) - known))}")
             matched = ownership.match_outlets(conn, source, outlets, now) if rematch else None
-            summary = ownership.resolve_ownership(conn, source, outlets, now)
+            corrections = load_ownership_corrections(settings.config_dir / "ownership.yaml")
+            summary = ownership.resolve_ownership(
+                conn, source, outlets, now, corrections=corrections
+            )
             if matched:
                 summary.matched = matched.matched
                 summary.ambiguous = matched.ambiguous

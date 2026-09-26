@@ -1,0 +1,78 @@
+# Cited corrections to Wikidata's ownership records, for owners Wikidata is missing or
+# lists out of date. Wikidata stays the main source; fix it there too when you can.
+#
+# Each entry names what it corrects and cites a public source you have read:
+#   outlet:   an outlet domain from outlets.yaml (its own Wikidata item), or
+#   entity:   another item in an ownership chain, by its exact name as shown or its QID
+# and one or more of:
+#   add_owner / add_parent:        an owner (or parent organization) missing from Wikidata,
+#                                  by exact name as shown elsewhere on the site, or QID
+#   remove_owner / remove_parent:  a Wikidata statement that's out of date; it's kept,
+#                                  shown on the outlet page as set aside, never as current
+#   source:   where the correction comes from (http/https)
+#   checked:  the date you checked the source, YYYY-MM-DD
+#   note:     optional, shown nowhere, for the next person reading this file
+#
+# Check with: make config-check. Applied on the next ownership run, or now: make ownership
+# Review everything with: make ownership-report
+
+corrections:
+  # --- owners missing from Wikidata ---
+  - outlet: edmontonjournal.com
+    add_owner: Postmedia Network
+    source: https://en.wikipedia.org/wiki/Edmonton_Journal
+    checked: 2026-09-26
+
+  - outlet: theglobeandmail.com
+    add_owner: The Woodbridge Company
+    source: https://www.theglobeandmail.com/report-on-business/woodbridge-buys-bces-15-stake-in-the-globe-and-mail/article25973828/
+    checked: 2026-09-26
+    note: Woodbridge took full ownership in 2015 (BCE's 15% stake).
+
+  - outlet: journaldequebec.com
+    add_owner: Québecor Média
+    source: https://www.cem.ulaval.ca/economie/portraits-dentreprises/quebecor/
+    checked: 2026-09-26
+
+  - outlet: thechronicleherald.ca
+    add_owner: Postmedia Network
+    source: https://www.cbc.ca/news/canada/nova-scotia/postmedia-completes-1m-purchase-saltwire-1.7305052
+    checked: 2026-09-26
+    note: Postmedia bought SaltWire and the Halifax Herald on 2024-08-26.
+
+  - outlet: thehill.com
+    add_owner: Q7020906  # Nexstar Media Group
+    source: https://www.nexstar.tv/nexstar-acquires-the-hill/
+    checked: 2026-09-26
+
+  # --- Wikidata statements that are out of date ---
+  - outlet: lesoleil.com
+    remove_owner: Power Corporation of Canada
+    source: https://en.wikipedia.org/wiki/Le_Soleil_(Quebec)
+    checked: 2026-09-26
+    note: Power Corp's Gesca sold it in 2015; since December 2019 it's part of the CN2i co-operative.
+
+  - outlet: chicagotribune.com
+    remove_owner: Tribune Media
+    source: https://en.wikipedia.org/wiki/Chicago_Tribune
+    checked: 2026-09-26
+    note: Tribune Media (TV stations) became part of Nexstar in 2019; the paper is Tribune Publishing's, owned by Alden Global Capital since 2021.
+
+  - outlet: ms.now
+    remove_owner: NBCUniversal Media Group
+    remove_parent: NBCUniversal News Group
+    source: https://variety.com/2026/tv/news/comcast-completes-versant-spinoff-stock-public-company-1236623658/
+    checked: 2026-09-26
+    note: Comcast spun MS NOW and CNBC off into Versant on 2026-01-02.
+
+  - outlet: cnbc.com
+    remove_owner: NBCUniversal
+    remove_parent: NBCUniversal News Group
+    source: https://variety.com/2026/tv/news/comcast-completes-versant-spinoff-stock-public-company-1236623658/
+    checked: 2026-09-26
+
+  - entity: USA Today Co.
+    remove_owner: Fortress Investment Group
+    source: https://www.editorandpublisher.com/stories/gannett-negotiates-early-exit-from-management-deal-with-fortress-investment-group,182801
+    checked: 2026-09-26
+    note: Fortress managed Gannett under an agreement that ended on 2020-12-31; it didn't own it.

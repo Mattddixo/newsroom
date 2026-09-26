@@ -76,8 +76,13 @@ class Edge:
     retrieved_at: str
 
     @property
+    def minority(self) -> bool:
+        """A stated stake under half: a shareholder, not an owner."""
+        return self.relation == "owned_by" and self.share is not None and self.share < 0.5
+
+    @property
     def label(self) -> str:
-        return RELATION_LABELS[self.relation]
+        return "Shareholder" if self.minority else RELATION_LABELS[self.relation]
 
     @property
     def whose(self) -> str:
@@ -111,7 +116,13 @@ class Graph:
         self.nodes = nodes
         self.up: dict[int, list[Edge]] = {}
         self.down: dict[int, list[Edge]] = {}
+        # Wikidata statements set aside as out of date by a cited correction: shown as
+        # such on the outlet page, never as current ownership.
+        self.set_aside: dict[int, list[Edge]] = {}
         for e in edges:
+            if e.source == "set_aside":
+                self.set_aside.setdefault(e.child, []).append(e)
+                continue
             self.up.setdefault(e.child, []).append(e)
             self.down.setdefault(e.parent, []).append(e)
         for lst in (*self.up.values(), *self.down.values()):
@@ -214,9 +225,18 @@ class Graph:
             seen = {entity_id, direct[0][1].id}
             current = direct[0][1].id
             while self.up.get(current):
+                if "public company" in self.nodes[current].kinds:
+                    # Owned by its shareholders: the line stops here (the outlet page lists
+                    # any stakes Wikidata records).
+                    more = True
+                    break
+                owners = [e for e in self.up[current] if not e.minority]
+                if not owners:
+                    more = True
+                    break
                 if len(self.up[current]) > 1:
                     more = True  # other owners at this step: in the full chain, not the line
-                e = self.up[current][0]
+                e = owners[0]
                 if e.parent in seen:
                     break  # the records loop back
                 if len(above) == SUMMARY_DEPTH:

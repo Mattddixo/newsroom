@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from newsroom.config import OutletConfig
+from newsroom.config import ConfigError, OutletConfig
 from newsroom.net.safe_fetch import FetchBlocked, FetchResult
 from newsroom.ownership_view import Graph
 from newsroom.services import ownership
@@ -538,3 +538,95 @@ def test_ownership_report(conn: sqlite3.Connection, tmp_path: Path, capsys, monk
     assert "CHECK nomatch.org" in out and "flags: no Wikidata item" in out
     assert "CHECK unknownowner.com" in out and "no owner listed" in out
     assert "shown: Owned by Example Media Group, whose owner is Example Family Trust, …" in out
+
+
+def test_cited_corrections_add_and_set_aside(conn: sqlite3.Connection, tmp_path: Path) -> None:
+    from newsroom.config import load_ownership_corrections
+
+    path = tmp_path / "ownership.yaml"
+    path.write_text(
+        "corrections:\n"
+        "  - outlet: exampledaily.ca\n"
+        "    remove_owner: Example Media Group\n"
+        "    add_owner: Q1011\n"
+        "    source: https://example.org/sold\n"
+        "    checked: 2026-09-20\n"
+        "  - outlet: nomatch.org\n"  # no Wikidata item yet: skipped, not an error
+        "    add_owner: Q1011\n"
+        "    source: https://example.org/x\n"
+        "    checked: 2026-09-20\n"
+    )
+    fixes = load_ownership_corrections(path)
+    fake = FakeWikidata()
+    source = fake.source()
+    due = ownership.due_outlets(conn, NOW, timedelta(days=7))
+    ownership.match_outlets(conn, source, due, NOW)
+    resolve_all(conn, fake)  # Example Media Group is now a known name
+    ownership.resolve_ownership(conn, source, due, NOW, corrections=fixes)
+    graph = Graph.load(conn)
+    daily = outlet(conn, "exampledaily.ca")
+    s = graph.summary(daily["entity_id"])
+    assert [(e.source, n.qid) for e, n in s.direct] == [("correction", "Q1011")]
+    aside = graph.set_aside[daily["entity_id"]]
+    assert [graph.nodes[e.parent].qid for e in aside] == ["Q1002"]
+    assert aside[0].source_url == "https://example.org/sold"
+    settings = Settings(data_dir=tmp_path / "site", rate_limit="1000/minute")
+    settings.db_path.parent.mkdir(parents=True)
+    copy = sqlite3.connect(settings.db_path)
+    conn.backup(copy)
+    copy.close()
+    client = TestClient(create_app(settings))
+    page = client.get("/outlet/exampledaily.ca").text
+    assert "Set aside as out of date:" in page and "owned by Example Media Group" in page
+    assert ">correction</span>" in page
+
+
+@pytest.mark.parametrize(
+    ("body", "message"),
+    [
+        ("corrections:\n  - outlet: a.ca\n    add_owner: X\n    checked: 2026-01-01\n", "source"),
+        (
+            "corrections:\n  - outlet: a.ca\n    add_owner: X\n    source: https://x.org\n",
+            "checked",
+        ),
+        (
+            "corrections:\n  - outlet: a.ca\n    source: https://x.org\n    checked: 2026-01-01\n",
+            "needs one of",
+        ),
+        (
+            "corrections:\n  - entity: X\n    outlet: a.ca\n    add_owner: Y\n"
+            "    source: https://x.org\n    checked: 2026-01-01\n",
+            "exactly one",
+        ),
+    ],
+)
+def test_correction_validation(tmp_path: Path, body: str, message: str) -> None:
+    from newsroom.config import load_ownership_corrections
+
+    path = tmp_path / "ownership.yaml"
+    path.write_text(body)
+    with pytest.raises(ConfigError, match=message):
+        load_ownership_corrections(path)
+
+
+def test_shareholders_and_public_companies_in_the_summary() -> None:
+    from newsroom.ownership_view import Edge, Graph, Node
+
+    def node(i: int, name: str, kind: str = "") -> Node:
+        return Node(i, f"Q{i}", name, "", kind, "", None, "u", "t")
+
+    def edge(child: int, parent: int, share: float | None = None) -> Edge:
+        return Edge(child, parent, "owned_by", share, None, "wikidata", "u", "t")
+
+    nodes = {
+        1: node(1, "ABC News"),
+        2: node(2, "ABC"),
+        3: node(3, "Disney", "public company"),
+        4: node(4, "BlackRock"),
+    }
+    graph = Graph(nodes, [edge(1, 2), edge(2, 3), edge(3, 4, 0.07)])
+    s = graph.summary(1)
+    # stops at the public company: it's owned by its shareholders
+    assert [n.name for _, n in s.above] == ["Disney"] and s.more
+    stake = graph.up[3][0]
+    assert stake.minority and stake.label == "Shareholder"

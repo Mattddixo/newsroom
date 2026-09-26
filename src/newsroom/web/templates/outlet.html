@@ -10,6 +10,12 @@
   <h2 id="own-h">Ownership</h2>
   {% if node %}
     {% if chain %}{{ render_chain(chain) }}{% else %}<p>{{ no_owner() }}</p>{% endif %}
+    {% set aside = graph.set_aside.get(node.id, []) %}
+    {% if aside %}
+    <p class="kind">Set aside as out of date:
+      {% for e in aside %}{{ e.label | lower }} {{ graph.nodes[e.parent].name }} (<a href="{{ e.source_url }}" target="_blank" rel="noopener noreferrer">source</a>, checked {{ e.retrieved_at[:10] }}){% if not loop.last %}; {% endif %}{% endfor %}.
+      Wikidata still lists {{ "it" if aside | length == 1 else "them" }}.</p>
+    {% endif %}
     <p class="kind">Wikidata item for this outlet: <a href="{{ node.source_url }}" target="_blank" rel="noopener noreferrer">{{ node.name }}</a> ({{ node.qid }}){% if node.description %}, “{{ node.description }}”{% endif %}.
       Matched {% if outlet.match_status == "auto" %}by {{ outlet.match_note or "its official website" }}{% elif outlet.match_status == "confirmed" %}by its official website, checked by hand{% else %}by hand{% if outlet.match_note %} ({{ outlet.match_note }}){% endif %}{% endif %}; retrieved {{ node.retrieved_at[:10] }}.</p>
   {% else %}

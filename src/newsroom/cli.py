@@ -13,7 +13,13 @@ from datetime import UTC, datetime, timedelta
 
 from newsroom import __version__, funding_view, jobs
 from newsroom.backup import backup
-from newsroom.config import ConfigError, load_curated_funding, load_outlets, load_tags
+from newsroom.config import (
+    ConfigError,
+    load_curated_funding,
+    load_outlets,
+    load_ownership_corrections,
+    load_tags,
+)
 from newsroom.db import connect
 from newsroom.log import setup_logging
 from newsroom.migrate import migrate
@@ -74,10 +80,14 @@ def cmd_config_check(_: argparse.Namespace) -> int:
         outlets = load_outlets(settings.config_dir / "outlets.yaml")
         tags = load_tags(settings.config_dir / "tags.yaml")
         curated = load_curated_funding(settings.config_dir / "public_funding.yaml")
+        fixes = load_ownership_corrections(settings.config_dir / "ownership.yaml")
     except ConfigError as exc:
         print(f"Invalid: {exc}")
         return 1
-    print(f"OK: {len(outlets)} outlets, {len(tags)} tags, {len(curated)} curated funding records.")
+    print(
+        f"OK: {len(outlets)} outlets, {len(tags)} tags, {len(curated)} curated funding records,"
+        f" {len(fixes)} ownership corrections."
+    )
     return 0
 
 
@@ -256,8 +266,12 @@ def cmd_ownership_report(_: argparse.Namespace) -> int:
             flags.append("no Wikidata item")
         elif not summary.direct:
             flags.append("no owner listed")
-        if node and "website" in f"{node.description} {node.kind}".lower():
-            flags.append("item is the website, not the outlet?")
+        if node and (
+            "." in node.name
+            or "website of" in node.description.lower()
+            or "web portal" in node.description.lower()
+        ):
+            flags.append("matched to the outlet's website item, not the outlet itself")
         item = f"{node.qid} {node.name} ({node.description or node.kind or '-'})" if node else "-"
         rows.append((bool(flags), o, item, summary_text(summary), flags))
     rows.sort(key=lambda r: (not r[0], r[1]["domain"]))

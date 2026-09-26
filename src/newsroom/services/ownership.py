@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from newsroom.config import OwnershipCorrection
 from newsroom.net.safe_fetch import FetchBlocked, FetchResult
 from newsroom.services.ingest import parse_ts, ts
 from newsroom.sources.wikidata import (
@@ -266,12 +267,47 @@ def _upsert_entity(
     return conn.execute("SELECT id FROM entities WHERE qid = ?", (data.qid,)).fetchone()[0]
 
 
+def _ref_qid(conn: sqlite3.Connection, ref: str) -> str | None:
+    """A correction's reference to an item: a QID, or the exact name of an item already
+    in the ownership records (unique, case-insensitive)."""
+    if QID_RE.match(ref.upper()):
+        return ref.upper()
+    rows = conn.execute("SELECT qid FROM entities WHERE name = ? COLLATE NOCASE", (ref,)).fetchall()
+    return rows[0]["qid"] if len(rows) == 1 else None
+
+
+def resolve_corrections(
+    conn: sqlite3.Connection, corrections: Sequence[OwnershipCorrection]
+) -> list[tuple[str, str, OwnershipCorrection]]:
+    """(child QID, target QID, correction) for each correction whose items are known.
+    Unknown ones are logged and skipped (an outlet not matched yet, a misspelt name)."""
+    out = []
+    for c in corrections:
+        if c.outlet:
+            row = conn.execute(
+                "SELECT wikidata_qid FROM outlets WHERE domain = ?", (c.outlet,)
+            ).fetchone()
+            child = row["wikidata_qid"] if row else None
+        else:
+            child = _ref_qid(conn, c.entity or "")
+        target = _ref_qid(conn, c.target)
+        if child and target and child != target:
+            out.append((child, target, c))
+        else:
+            log.warning(
+                "ownership correction not applied: item not found",
+                extra={"outlet": c.outlet, "entity": c.entity, "target": c.target},
+            )
+    return out
+
+
 def resolve_ownership(
     conn: sqlite3.Connection,
     source: WikidataSource,
     outlets: Sequence[sqlite3.Row],
     now: datetime,
     max_depth: int = MAX_DEPTH,
+    corrections: Sequence[OwnershipCorrection] = (),
 ) -> ResolveSummary:
     summary = ResolveSummary(outlets=len(outlets))
     # Re-read: matching may have just changed the QIDs.
@@ -284,7 +320,15 @@ def resolve_ownership(
         ids,
     ).fetchall()
     roots = {r["wikidata_qid"] for r in rows if r["wikidata_qid"]}
-    fetched, examined = fetch_chains(source, roots, now, _manual_parents(conn), max_depth)
+    fixes = resolve_corrections(conn, corrections)
+    manual = _manual_parents(conn)
+    for child, target, c in fixes:
+        if c.action == "add":
+            manual.setdefault(child, set()).add(target)  # follow the added owner's chain
+    set_aside = {
+        (child, target, c.relation): c for child, target, c in fixes if c.action == "remove"
+    }
+    fetched, examined = fetch_chains(source, roots, now, manual, max_depth)
     labels = source.get_labels(
         {q for d in fetched.values() for q in (*d.instance_of[:3], *d.country)}
     )
@@ -298,12 +342,32 @@ def resolve_ownership(
             data = fetched[qid]
             child = entity_ids[qid]
             conn.execute(
-                "DELETE FROM ownership_edges WHERE child_entity_id = ? AND source = 'wikidata'",
+                "DELETE FROM ownership_edges WHERE child_entity_id = ?"
+                " AND source IN ('wikidata', 'correction', 'set_aside')",
                 (child,),
             )
+            for fix_child, target, c in fixes:
+                if fix_child == qid and c.action == "add" and target in entity_ids:
+                    conn.execute(
+                        "INSERT OR IGNORE INTO ownership_edges (child_entity_id,"
+                        " parent_entity_id, relation, source, source_url, retrieved_at)"
+                        " VALUES (?, ?, ?, 'correction', ?, ?)",
+                        (child, entity_ids[target], c.relation, c.source, c.checked),
+                    )
+                    summary.edges += 1
             for p in data.parents:
                 parent = entity_ids.get(p.qid)
                 if parent is None:  # parent item missing or deleted on Wikidata
+                    continue
+                fix = set_aside.get((qid, p.qid, p.relation))
+                if fix:
+                    # Out of date by a cited source: kept, marked, not shown as current.
+                    conn.execute(
+                        "INSERT OR IGNORE INTO ownership_edges (child_entity_id,"
+                        " parent_entity_id, relation, share, start_date, source, source_url,"
+                        " retrieved_at) VALUES (?, ?, ?, ?, ?, 'set_aside', ?, ?)",
+                        (child, parent, p.relation, p.share, p.start, fix.source, fix.checked),
+                    )
                     continue
                 if fetched[p.qid].died:
                     # "owned by" a person who has since died: the statement lacks an end

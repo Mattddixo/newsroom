@@ -237,3 +237,69 @@ def load_curated_funding(path: Path) -> list[CuratedFunding]:
             )
         )
     return out
+
+
+# ------------------------------------------------------------------ ownership corrections
+
+CORRECTION_ACTIONS = {
+    "add_owner": ("add", "owned_by"),
+    "add_parent": ("add", "parent_org"),
+    "remove_owner": ("remove", "owned_by"),
+    "remove_parent": ("remove", "parent_org"),
+}
+
+
+@dataclass(frozen=True)
+class OwnershipCorrection:
+    """One cited change to what Wikidata says about who owns something (ownership.yaml).
+    `child` is an outlet domain or the name/QID of an owner; `target` a name or QID."""
+
+    outlet: str | None  # the outlet's own Wikidata item
+    entity: str | None  # or another item in the chain, by name or QID
+    action: str  # add | remove
+    relation: str  # owned_by | parent_org
+    target: str  # the owner / parent, by name or QID
+    source: str
+    checked: str
+    note: str = ""
+
+
+def load_ownership_corrections(path: Path) -> list[OwnershipCorrection]:
+    """Cited corrections to Wikidata's ownership records. Missing file = none."""
+    if not path.exists():
+        return []
+    data = _load(path)
+    items = data.get("corrections") if isinstance(data, dict) else None
+    if items is None:
+        return []
+    if not isinstance(items, list):
+        raise ConfigError(f"{path.name}: 'corrections:' must be a list")
+    out: list[OwnershipCorrection] = []
+    for i, item in enumerate(items, 1):
+        where = f"{path.name} entry {i}"
+        if not isinstance(item, dict):
+            raise ConfigError(f"{where}: expected a mapping")
+        outlet = str(item.get("outlet") or "").strip().lower() or None
+        entity = str(item.get("entity") or "").strip() or None
+        if bool(outlet) == bool(entity):
+            raise ConfigError(f"{where}: give exactly one of 'outlet' or 'entity'")
+        if outlet and not DOMAIN_RE.match(outlet):
+            raise ConfigError(f"{where}: invalid outlet domain {outlet!r}")
+        source = str(item.get("source") or "").strip()
+        if not is_http_url(source):
+            raise ConfigError(f"{where}: every correction needs a source (http/https URL)")
+        checked = str(item.get("checked") or "").strip()
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", checked):
+            raise ConfigError(f"{where}: 'checked' must be the date you checked, YYYY-MM-DD")
+        note = " ".join(str(item.get("note") or "").split())[:200]
+        actions = [k for k in CORRECTION_ACTIONS if item.get(k)]
+        if not actions:
+            raise ConfigError(f"{where}: needs one of {', '.join(CORRECTION_ACTIONS)}")
+        for key in actions:
+            action, relation = CORRECTION_ACTIONS[key]
+            out.append(
+                OwnershipCorrection(
+                    outlet, entity, action, relation, str(item[key]).strip(), source, checked, note
+                )
+            )
+    return out
