@@ -464,12 +464,24 @@ def outlets_of(articles: list[queries.Article]) -> str:
     return "".join(a.outlet_domain for a in articles)
 
 
-def test_spread_breaks_up_one_outlets_run() -> None:
-    run = _stories(("A", 0), ("A", 2), ("A", 4), ("B", 5), ("C", 9), ("A", 12))
+def test_spread_spaces_outlets_out() -> None:
+    # at most once in any 4 stories in a row when there's enough variety nearby
+    run = _stories(("A", 0), ("A", 1), ("B", 2), ("B", 3), ("C", 4), ("D", 5))
     got = queries.spread(run)
-    assert outlets_of(got) == "ABACAA"
+    assert outlets_of(got) == "ABCDAB"  # was AABBCD
     assert got[0] is run[0]  # the newest story stays on top
     assert sorted(a.id for a in got) == [a.id for a in run]  # nothing added or lost
+
+
+def test_spread_with_two_outlets_takes_turns() -> None:
+    run = _stories(("C", 1), ("C", 2), ("C", 3), ("N", 4), ("N", 5))
+    assert outlets_of(queries.spread(run)) == "CNCNC"
+
+
+def test_spread_a_dominant_outlet_is_only_kept_from_repeating() -> None:
+    # A is most of what's nearby: spacing it by 3 would just bunch it up at the end
+    run = _stories(("A", 0), ("A", 2), ("A", 4), ("B", 5), ("C", 9), ("A", 12))
+    assert outlets_of(queries.spread(run)) == "ABACAA"
 
 
 def test_spread_keeps_time_order_when_nothing_is_near() -> None:

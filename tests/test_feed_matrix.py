@@ -231,13 +231,14 @@ def test_every_filter_and_sort_combination(world: tuple[sqlite3.Connection, list
         if sort == "relevance":
             assert sorted(got_ids) == sorted(want_ids), params
         elif f.balanced and sort in ("newest", "oldest"):
-            # interleaved to break up one outlet's runs: the same articles on each page,
-            # none moved more than a few places from its place in time order
+            # outlets spaced out: the same articles on each page, and every slot's time
+            # within SPREAD_WINDOW of where strict time order would have it
             for start in range(0, len(want_ids), 25):
                 chunk = slice(start, start + 25)
                 assert sorted(got_ids[chunk]) == sorted(want_ids[chunk]), params
+            shown = {m["id"]: m["shown"] for m in want}
             for i, a in enumerate(got_ids):
-                assert abs(want_ids.index(a) - i) <= queries.SPREAD_LOOKAHEAD, params
+                assert abs(shown[a] - want[i]["shown"]) <= queries.SPREAD_WINDOW, params
         else:
             assert got_ids == want_ids, params
         checked += 1

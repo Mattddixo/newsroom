@@ -414,27 +414,52 @@ def feed(
     return FeedPage(groups, total, page, f.per, hidden)
 
 
-SPREAD_LOOKAHEAD = 6  # places a story may move up to break a run
+SPREAD_GAP = 3  # an outlet isn't shown again until 3 other stories have been
+SPREAD_LOOKAHEAD = 10  # places a story may move up to keep that gap
 SPREAD_WINDOW = timedelta(minutes=30)  # ... and only past stories this close in time
+SPREAD_MAX_DEFER = 3  # times a story may be passed over before it's shown anyway
 
 
 def spread(articles: list[Article]) -> list[Article]:
-    """The same articles, reordered so one outlet's stories don't sit back to back.
-    Walking the list in order, when the next story is from the outlet just shown, the
-    first nearby story from another outlet (at most SPREAD_LOOKAHEAD places ahead and
-    within SPREAD_WINDOW of it) is shown first. The first story stays first, nothing is
-    added or removed, and a run is left alone when no other outlet published nearby."""
+    """The same articles, reordered so outlets don't crowd together: each outlet appears
+    at most once in any SPREAD_GAP + 1 stories in a row where possible (a run of one
+    outlet, or two taking turns, reads as repetitive).
+
+    Walking the list in order, the next story is compared with the nearby ones (at most
+    SPREAD_LOOKAHEAD places ahead, within SPREAD_WINDOW of it); if its outlet was shown
+    too recently, the nearby story whose outlet was shown longest ago comes first. When
+    one outlet makes up most of the nearby stories, spacing it out would only bunch it
+    up later, so then only back-to-back repeats are avoided. A story is passed over at
+    most SPREAD_MAX_DEFER times; the first story stays first; nothing is added or
+    removed; when no other outlet published nearby, stories stay as they are."""
     rest = list(articles)
     out: list[Article] = []
+    passed_over: dict[int, int] = {}
+
+    def since(outlet: str) -> int:
+        """1 if `outlet` was the last shown, 2 if the one before, ...; GAP + 1 if not
+        among the last SPREAD_GAP."""
+        for k, a in enumerate(reversed(out[-SPREAD_GAP:]), start=1):
+            if a.outlet_domain == outlet:
+                return k
+        return SPREAD_GAP + 1
+
     while rest:
+        head = rest[0]
+        nearby = [head]
+        for a in rest[1 : SPREAD_LOOKAHEAD + 1]:
+            if abs(a.published - head.published) > SPREAD_WINDOW:
+                break
+            nearby.append(a)
+        dominant = 2 * sum(a.outlet_domain == head.outlet_domain for a in nearby) > len(nearby)
+        need = 1 if dominant else SPREAD_GAP  # stories that must come between repeats
         pick = 0
-        if out and rest[0].outlet_domain == out[-1].outlet_domain:
-            for i, a in enumerate(rest[1 : SPREAD_LOOKAHEAD + 1], start=1):
-                if abs(a.published - rest[0].published) > SPREAD_WINDOW:
-                    break
-                if a.outlet_domain != out[-1].outlet_domain:
-                    pick = i
-                    break
+        if since(head.outlet_domain) <= need and passed_over.get(head.id, 0) < SPREAD_MAX_DEFER:
+            scores = [since(a.outlet_domain) for a in nearby]
+            best = scores.index(max(scores))
+            if scores[best] > scores[0]:
+                pick = best
+                passed_over[head.id] = passed_over.get(head.id, 0) + 1
         out.append(rest.pop(pick))
     return out
 
