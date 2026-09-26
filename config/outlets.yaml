@@ -8,6 +8,8 @@
 #   feeds:    optional list of the outlet's own RSS/Atom feeds, read every 15 minutes as
 #             a second source (for outlets GDELT doesn't carry). Test with: make feeds
 #   note:     optional text shown on the outlet's page, e.g. why it has no articles
+#   wikidata: optional Wikidata item for ownership (Q12345, or "none"), for outlets the
+#             automatic match gets wrong or can't find. List them with: make unmatched
 # Removing an entry stops ingestion for it; its existing articles are kept.
 # Check your edits with: docker compose exec worker newsroom config check
 # See which outlets GDELT actually carries, and under which addresses: make coverage

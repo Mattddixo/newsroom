@@ -25,13 +25,23 @@ class FakeWikidata:
         self.entities: dict = data["entities"]
         self.labels = load("labels.json")["entities"]
         self.sparql = load("sparql_match.json")
+        self.news: set[str] = set()  # items Wikidata classifies as news media
+        self.search_results: dict[str, list[str]] = {}  # name -> QIDs
         self.requests: list[dict[str, list[str]]] = []
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         params = parse_qs(urlsplit(str(request.url)).query)
         self.requests.append(params)
         if request.url.host == "query.wikidata.org":
+            query = params["query"][0]
+            if "wdt:P279*" in query:  # news-media classification
+                hits = [q for q in self.news if f"wd:{q} " in query + " "]
+                rows = [{"item": {"value": f"http://www.wikidata.org/entity/{q}"}} for q in hits]
+                return httpx.Response(200, json={"results": {"bindings": rows}})
             return httpx.Response(200, json=self.sparql)
+        if params.get("action") == ["wbsearchentities"]:
+            hits = self.search_results.get(params["search"][0], [])
+            return httpx.Response(200, json={"search": [{"id": q} for q in hits]})
         ids = params["ids"][0].split("|")
         out = {}
         for q in ids:

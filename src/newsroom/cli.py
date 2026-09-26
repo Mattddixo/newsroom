@@ -185,7 +185,10 @@ def cmd_outlets_unmatched(_: argparse.Namespace) -> int:
                 print(f"    candidate {c['qid']:<12} {c['label']}  {c['description']}")
     finally:
         conn.close()
-    print("\nFix with: newsroom outlets set-qid <domain> <QID>   (or 'none' if no item exists)")
+    print(
+        "\nFix: add `wikidata: Q12345` (or `wikidata: none`) to the outlet in outlets.yaml,"
+        " then `make ownership`."
+    )
     return 0
 
 

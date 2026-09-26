@@ -217,6 +217,7 @@ tags:
                cfl, olympics, sports et loisirs]
   arts:
     label: Arts & culture
+    # Not "television": outlets file TV-network news (e.g. CNN) under it; that's Media.
     sections: [arts, culture, arts & culture, arts and culture, entertainment, music, movies,
-               film, books, television, tv, theatre, celebrity, arts et spectacles, spectacles,
-               musique, cinéma, livres, télévision]
+               film, books, theatre, celebrity, arts et spectacles, spectacles,
+               musique, cinéma, livres]

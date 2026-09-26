@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -312,7 +313,7 @@ def test_ownership_fragment_links_every_claim_to_source(client: TestClient) -> N
 def test_outlet_page(client: TestClient) -> None:
     html = client.get("/outlet/exampledaily.ca").text
     assert "Example Media Group" in html
-    assert "Matched by website" in html
+    assert "Matched by its official website" in html
     assert "Housing news" in html
     assert "Wikimedia Commons" in html
     unmatched = client.get("/outlet/nomatch.org").text
@@ -405,3 +406,69 @@ def test_every_internal_link_opens(client: TestClient) -> None:
     assert any(u.startswith("/owner/") for u in seen) and any(
         u.startswith("/outlet/") for u in seen
     )
+
+
+def _item(qid: str, label: str, website: str) -> dict:
+    return {
+        "id": qid,
+        "labels": {"en": {"value": label}},
+        "claims": {
+            "P856": [
+                {
+                    "rank": "normal",
+                    "mainsnak": {"snaktype": "value", "datavalue": {"value": website}},
+                }
+            ]
+        },
+    }
+
+
+def test_several_items_with_the_website_pick_the_news_outlet(conn: sqlite3.Connection) -> None:
+    fake = FakeWikidata()
+    fake.news = {"Q2001"}  # "Two Names News" is a newspaper; Q2002 is the company
+    due = ownership.due_outlets(conn, NOW, timedelta(days=7))
+    ownership.match_outlets(conn, fake.source(), due, NOW)
+    two = outlet(conn, "twonames.ca")
+    assert (two["match_status"], two["wikidata_qid"]) == ("auto", "Q2001")
+    assert "only news outlet among 2" in two["match_note"]
+    fake.news = {"Q2001", "Q2002"}  # both news outlets: no guess
+    conn.execute("UPDATE outlets SET match_status = 'unmatched'")
+    ownership.match_outlets(conn, fake.source(), due, NOW)
+    assert outlet(conn, "twonames.ca")["match_status"] == "ambiguous"
+
+
+def test_name_search_accepts_only_the_outlets_own_website(conn: sqlite3.Connection) -> None:
+    fake = FakeWikidata()
+    fake.entities.update(
+        {
+            "Q3001": _item("Q3001", "No Match (radio)", "https://sports.nomatch.org/"),
+            "Q3002": _item("Q3002", "No Match", "https://www.nomatch.org/news"),
+            "Q3003": _item("Q3003", "No Match Band", "https://nomatch-band.com/"),
+        }
+    )
+    fake.search_results = {"No Match": ["Q3003", "Q3001", "Q3002"]}
+    due = ownership.due_outlets(conn, NOW, timedelta(days=7))
+    ownership.match_outlets(conn, fake.source(), due, NOW)
+    o = outlet(conn, "nomatch.org")
+    # the item on the outlet's own domain wins over a subdomain; the band is ignored
+    assert (o["match_status"], o["wikidata_qid"]) == ("auto", "Q3002")
+    assert o["match_note"] == "a search for its name; its official website checked"
+
+    fake.search_results = {"No Match": ["Q3003"]}  # only an unrelated item: nothing
+    conn.execute("UPDATE outlets SET match_status = 'unmatched' WHERE domain = 'nomatch.org'")
+    ownership.match_outlets(conn, fake.source(), due, NOW)
+    assert outlet(conn, "nomatch.org")["match_status"] == "unmatched"
+
+
+def test_outlets_yaml_pin(conn: sqlite3.Connection) -> None:
+    pinned = [replace(OUTLETS[0], wikidata="Q1011"), replace(OUTLETS[3], wikidata="none")]
+    sync_outlets(conn, [*pinned, *OUTLETS[1:3]], NOW)
+    daily, none = outlet(conn, "exampledaily.ca"), outlet(conn, "nomatch.org")
+    assert (daily["match_status"], daily["wikidata_qid"]) == ("manual", "Q1011")
+    assert daily["match_note"] == "set in outlets.yaml"
+    assert (none["match_status"], none["wikidata_qid"]) == ("manual", None)
+    resolve_all(conn, FakeWikidata())  # automatic matching leaves pins alone
+    assert outlet(conn, "exampledaily.ca")["wikidata_qid"] == "Q1011"
+    sync_outlets(conn, OUTLETS, NOW)  # the line removed: automatic again
+    back = outlet(conn, "exampledaily.ca")
+    assert (back["match_status"], back["wikidata_qid"]) == ("unmatched", None)

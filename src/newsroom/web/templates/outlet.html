@@ -11,7 +11,7 @@
   {% if node %}
   <p><a href="/owner/{{ node.qid }}">{{ node.name }}</a>{% if node.description %} <span class="muted">({{ node.description }})</span>{% endif %}
     <span class="src">Source: <a href="{{ node.source_url }}" target="_blank" rel="noopener noreferrer">Wikidata {{ node.qid }}</a>, retrieved {{ node.retrieved_at[:10] }}.
-    Matched {% if outlet.match_status == "auto" %}by website{% elif outlet.match_status == "confirmed" %}by website, checked by hand{% else %}by hand{% endif %}.</span></p>
+    Matched {% if outlet.match_status == "auto" %}by {{ outlet.match_note or "its official website" }}{% elif outlet.match_status == "confirmed" %}by website, checked by hand{% else %}by hand{% if outlet.match_note %} ({{ outlet.match_note }}){% endif %}{% endif %}.</span></p>
     {% if chain %}{{ render_chain(chain) }}{% else %}<p>{{ no_owner() }}</p>{% endif %}
   {% else %}
   <p>Owner: {{ not_disclosed() }}</p>

@@ -18,13 +18,14 @@ from newsroom.services.ingest import parse_ts, ts
 from newsroom.sources.wikidata import (
     IDENTIFIER_PROPERTIES,
     QID_RE,
+    Candidate,
     EntityData,
     WikidataSource,
     commons_file_page,
     commons_thumb_url,
     entity_url,
 )
-from newsroom.urls import is_http_url
+from newsroom.urls import host_of, is_http_url
 
 log = logging.getLogger(__name__)
 
@@ -71,50 +72,120 @@ def due_outlets(
     ).fetchall()
 
 
+@dataclass
+class _Match:
+    qid: str | None
+    note: str
+    candidates: list[Candidate]
+
+
+def _website_host(url: str) -> str:
+    try:
+        return host_of(url).removeprefix("www.")
+    except ValueError:
+        return ""
+
+
+def _decide(
+    outlet: sqlite3.Row,
+    by_website: list[Candidate],
+    news: set[str],
+    searched: list[EntityData],
+) -> _Match:
+    """Pick an outlet's item, or none, from what Wikidata returned. Every automatic match
+    rests on the item's official website (P856) being the outlet's own."""
+    if len(by_website) == 1:
+        return _Match(by_website[0].qid, "its official website", [])
+    if by_website:
+        media = [c for c in by_website if c.qid in news]
+        if len(media) == 1:
+            return _Match(
+                media[0].qid,
+                f"its official website; the only news outlet among {len(by_website)} items"
+                " listing that website",
+                [],
+            )
+        return _Match(None, "", by_website)
+    # Nothing lists the website exactly: search by name, keep items whose official
+    # website is on the outlet's domains (e.g. listed with a path, or a subdomain).
+    domains = [outlet["domain"], *outlet["aliases"].split()]
+    exact = [e for e in searched if any(_website_host(w) in domains for w in e.websites)]
+    near = [
+        e
+        for e in searched
+        if any(_website_host(w).endswith(tuple("." + d for d in domains)) for w in e.websites)
+    ]
+    for tier in (exact, near):
+        if not tier:
+            continue
+        pick = tier if len(tier) == 1 else [e for e in tier if e.qid in news]
+        if len(pick) == 1:
+            return _Match(pick[0].qid, "a search for its name; its official website checked", [])
+        return _Match(
+            None,
+            "",
+            [Candidate(e.qid, e.label, e.description, e.website or "") for e in tier],
+        )
+    return _Match(None, "", [])
+
+
 def match_outlets(
     conn: sqlite3.Connection, source: WikidataSource, outlets: Sequence[sqlite3.Row], now: datetime
 ) -> ResolveSummary:
-    """Match domains to Wikidata items by official website (P856).
-    Confirmed and manual matches are never touched."""
+    """Match outlets to Wikidata items. First by official website (P856); several items
+    with that website -> the one that's a news outlet by Wikidata's classification; none
+    -> a name search, keeping only items whose website is the outlet's. Never a guess:
+    anything left uncertain is 'ambiguous' with its candidates. Confirmed and manual
+    matches are never touched."""
     summary = ResolveSummary()
     todo = [o for o in outlets if o["match_status"] in AUTO_STATUSES]
     if not todo:
         return summary
     found = source.match_domains([o["domain"] for o in todo])
+    searched: dict[str, list[EntityData]] = {}
+    for o in todo:
+        if not found.get(o["domain"]):
+            hits = source.search(o["display_name"])
+            entities = source.get_entities(hits, now) if hits else {}
+            searched[o["domain"]] = [entities[q] for q in hits if q in entities]
+    to_classify = {c.qid for o in todo for c in found.get(o["domain"], [])}
+    to_classify |= {e.qid for es in searched.values() for e in es}
+    news = source.news_media(to_classify) if to_classify else set()
+    decisions = {
+        o["id"]: _decide(o, found.get(o["domain"], []), news, searched.get(o["domain"], []))
+        for o in todo
+    }
+
     stamp = ts(now)
     conn.execute("BEGIN IMMEDIATE")
     try:
         for o in todo:
-            candidates = found.get(o["domain"], [])
+            m = decisions[o["id"]]
             conn.execute("DELETE FROM outlet_match_candidates WHERE outlet_id = ?", (o["id"],))
-            if len(candidates) == 1:
-                qid = candidates[0].qid
+            if m.qid:
                 conn.execute(
                     "UPDATE outlets SET wikidata_qid = ?, match_status = 'auto',"
-                    " match_source_url = ?, matched_at = ? WHERE id = ?",
-                    (qid, entity_url(qid, "P856"), stamp, o["id"]),
+                    " match_source_url = ?, match_note = ?, matched_at = ? WHERE id = ?",
+                    (m.qid, entity_url(m.qid, "P856"), m.note, stamp, o["id"]),
                 )
                 summary.matched += 1
+                continue
+            status = "ambiguous" if m.candidates else "unmatched"
+            conn.execute(
+                "UPDATE outlets SET wikidata_qid = NULL, match_status = ?,"
+                " match_source_url = NULL, match_note = '', matched_at = ? WHERE id = ?",
+                (status, stamp, o["id"]),
+            )
+            conn.executemany(
+                "INSERT INTO outlet_match_candidates"
+                " (outlet_id, qid, label, description, website, retrieved_at)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
+                [(o["id"], c.qid, c.label, c.description, c.website, stamp) for c in m.candidates],
+            )
+            if m.candidates:
+                summary.ambiguous += 1
             else:
-                status = "ambiguous" if candidates else "unmatched"
-                conn.execute(
-                    "UPDATE outlets SET wikidata_qid = NULL, match_status = ?,"
-                    " match_source_url = NULL, matched_at = ? WHERE id = ?",
-                    (status, stamp, o["id"]),
-                )
-                conn.executemany(
-                    "INSERT INTO outlet_match_candidates"
-                    " (outlet_id, qid, label, description, website, retrieved_at)"
-                    " VALUES (?, ?, ?, ?, ?, ?)",
-                    [
-                        (o["id"], c.qid, c.label, c.description, c.website, stamp)
-                        for c in candidates
-                    ],
-                )
-                if candidates:
-                    summary.ambiguous += 1
-                else:
-                    summary.unmatched += 1
+                summary.unmatched += 1
         conn.execute("COMMIT")
     except Exception:
         conn.execute("ROLLBACK")
@@ -311,7 +382,7 @@ def set_qid(conn: sqlite3.Connection, domain: str, qid: str | None, now: datetim
         raise ValueError(f"not a QID: {qid}")
     cur = conn.execute(
         "UPDATE outlets SET wikidata_qid = ?, match_status = 'manual', match_source_url = ?,"
-        " matched_at = ?, ownership_checked_at = NULL WHERE domain = ?",
+        " match_note = '', matched_at = ?, ownership_checked_at = NULL WHERE domain = ?",
         (qid, entity_url(qid) if qid else None, ts(now), domain),
     )
     if cur.rowcount == 0:

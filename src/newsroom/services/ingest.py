@@ -116,6 +116,7 @@ def sync_outlets(conn: sqlite3.Connection, outlets: Sequence[OutletConfig], now:
                     stamp,
                 ),
             )
+            _sync_pin(conn, o, stamp)
         domains = [o.domain for o in outlets]
         placeholders = ",".join("?" * len(domains)) or "''"
         conn.execute(
@@ -127,6 +128,40 @@ def sync_outlets(conn: sqlite3.Connection, outlets: Sequence[OutletConfig], now:
     except Exception:
         conn.execute("ROLLBACK")
         raise
+
+
+PINNED = "set in outlets.yaml"
+
+
+def _sync_pin(conn: sqlite3.Connection, o: OutletConfig, stamp: str) -> None:
+    """Apply `wikidata:` from outlets.yaml. Removing the line hands the outlet back to
+    automatic matching; a pin made with `newsroom outlets set-qid` is left alone."""
+    row = conn.execute(
+        "SELECT wikidata_qid, match_status, match_note FROM outlets WHERE domain = ?",
+        (o.domain,),
+    ).fetchone()
+    if o.wikidata:
+        qid = None if o.wikidata == "none" else o.wikidata
+        if (row["wikidata_qid"], row["match_status"], row["match_note"]) != (qid, "manual", PINNED):
+            conn.execute(
+                "UPDATE outlets SET wikidata_qid = ?, match_status = 'manual',"
+                " match_source_url = ?, match_note = ?, matched_at = ?,"
+                " ownership_checked_at = NULL WHERE domain = ?",
+                (
+                    qid,
+                    f"https://www.wikidata.org/wiki/{qid}" if qid else None,
+                    PINNED,
+                    stamp,
+                    o.domain,
+                ),
+            )
+    elif row["match_status"] == "manual" and row["match_note"] == PINNED:
+        conn.execute(
+            "UPDATE outlets SET wikidata_qid = NULL, match_status = 'unmatched',"
+            " match_source_url = NULL, match_note = '', ownership_checked_at = NULL"
+            " WHERE domain = ?",
+            (o.domain,),
+        )
 
 
 def outlet_domains(conn: sqlite3.Connection) -> dict[str, list[str]]:

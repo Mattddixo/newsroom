@@ -139,3 +139,41 @@ def test_commons_thumb_url() -> None:
     assert commons_thumb_url("Example Daily logo.svg") == (
         "https://commons.wikimedia.org/wiki/Special:FilePath/Example_Daily_logo.svg?width=64"
     )
+
+
+def test_a_person_has_no_owners() -> None:
+    # e.g. a newspaper owner whose item says "owned by" a sports team's owner
+    person = {
+        "id": "Q9001",
+        "labels": {"en": {"value": "A Person"}},
+        "claims": {
+            "P31": [
+                {
+                    "rank": "normal",
+                    "mainsnak": {"snaktype": "value", "datavalue": {"value": {"id": "Q5"}}},
+                }
+            ],
+            "P127": [
+                {
+                    "rank": "normal",
+                    "mainsnak": {"snaktype": "value", "datavalue": {"value": {"id": "Q9002"}}},
+                }
+            ],
+        },
+    }
+    d = parse_entity(person, NOW)
+    assert d is not None and d.instance_of == ["Q5"]
+    assert d.parents == []  # the ownership chain stops at the person
+    company = {
+        **person,
+        "claims": {
+            **person["claims"],
+            "P31": [
+                {
+                    "rank": "normal",
+                    "mainsnak": {"snaktype": "value", "datavalue": {"value": {"id": "Q4830453"}}},
+                }
+            ],
+        },
+    }
+    assert [p.qid for p in parse_entity(company, NOW).parents] == ["Q9002"]  # type: ignore[union-attr]

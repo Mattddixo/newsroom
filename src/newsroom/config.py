@@ -35,6 +35,9 @@ class OutletConfig:
     feeds: tuple[str, ...] = ()
     # Shown on the outlet page, e.g. why no articles are available. Plain text.
     note: str = ""
+    # Pins the outlet's Wikidata item (a QID, or "none" if it has no item) instead of
+    # matching automatically. For outlets the automatic match gets wrong or can't find.
+    wikidata: str = ""
 
 
 @dataclass(frozen=True)
@@ -105,9 +108,12 @@ def load_outlets(path: Path) -> list[OutletConfig]:
         note = " ".join(str(item.get("note", "") or "").split())
         if len(note) > 300:
             raise ConfigError(f"{where} ({domain}): note is longer than 300 characters")
+        wikidata = str(item.get("wikidata", "") or "").strip()
+        if wikidata and wikidata != "none" and not re.fullmatch(r"Q[1-9]\d{0,11}", wikidata):
+            raise ConfigError(f"{where} ({domain}): wikidata must be a QID like Q12345 or 'none'")
         seen.add(domain)
         seen.update(also)
-        outlets.append(OutletConfig(domain, name, country, language, also, feeds, note))
+        outlets.append(OutletConfig(domain, name, country, language, also, feeds, note, wikidata))
     return outlets
 
 
