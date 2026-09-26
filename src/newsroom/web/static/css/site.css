@@ -10,6 +10,8 @@
   --focus: #0b57a4;
   --chip-bg: #e8eef6;
   --chip-fg: #274a70;
+  --mark-bg: #ffe27a;
+  --mark-fg: #1a1a1a;
   --font: system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, sans-serif;
   --mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
 }
@@ -25,6 +27,8 @@
     --focus: #7cb4f0;
     --chip-bg: #24303d;
     --chip-fg: #b9d3ee;
+    --mark-bg: #6b5410;
+    --mark-fg: #fff1c2;
   }
 }
 
@@ -400,10 +404,12 @@ button {
 
 /* What a search matched: in headlines and in the "Matched:" line. */
 mark {
-  background: var(--chip-bg);
-  color: inherit;
-  border-radius: 2px;
-  padding: 0 0.05em;
+  background: var(--mark-bg);
+  color: var(--mark-fg);
+  border-radius: 3px;
+  padding: 0 0.12em;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
 }
 
 /* In search results: who and where the story is about (why it matched). */
