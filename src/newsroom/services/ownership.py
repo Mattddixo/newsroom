@@ -31,7 +31,9 @@ log = logging.getLogger(__name__)
 
 MAX_DEPTH = 10
 AUTO_STATUSES = ("unmatched", "auto", "ambiguous")
-LOGO_HOSTS = ("commons.wikimedia.org", "upload.wikimedia.org")
+# Commons' Special:FilePath redirects to the image on one of Wikimedia's media hosts
+# (thumbnails now come from thumb.wikimedia.org).
+LOGO_HOSTS = ("commons.wikimedia.org", "upload.wikimedia.org", "thumb.wikimedia.org")
 LOGO_MAX_AGE = timedelta(days=30)
 _MAGIC = {
     b"\x89PNG\r\n\x1a\n": "png",
