@@ -398,6 +398,14 @@ button {
   }
 }
 
+/* What a search matched: in headlines and in the "Matched:" line. */
+mark {
+  background: var(--chip-bg);
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 0.05em;
+}
+
 /* In search results: who and where the story is about (why it matched). */
 .about {
   margin: 0.25rem 0 0;

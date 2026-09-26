@@ -24,6 +24,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from jinja2 import StrictUndefined
 from limits import parse as parse_limit
+from markupsafe import Markup
 from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
@@ -70,6 +71,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     templates.env.filters["pct"] = lambda v: f"{v * 100:.4g}%"
     templates.env.filters["article_date"] = lambda d: _article_date(d, datetime.now(tz))
     templates.env.filters["money"] = _money
+    templates.env.filters["highlight"] = _highlight
+    templates.env.filters["matched"] = _matched
     templates.env.globals["page_url"] = lambda f, n: _feed_url(f.params(page=n))
     templates.env.globals["feed_url"] = _feed_url
 
@@ -337,6 +340,21 @@ OWNER_SORTS = {
 def _table_sort(request: Request, allowed: dict, default: str) -> str:
     value = request.query_params.get("sort", default)
     return value if value in allowed else default
+
+
+def _highlight(text: str, q: str) -> Markup | str:
+    """`text` with what the search `q` matched marked (escaped either way)."""
+    terms = queries.SearchTerms.parse(q) if q else None
+    return terms.highlight(text) if terms else text
+
+
+def _matched(about: str, q: str, title: str) -> list[Markup]:
+    """The names in a story's `about` line that the search matched, marked; nothing when
+    the headline already shows the match."""
+    terms = queries.SearchTerms.parse(q) if q else None
+    if not terms or not about or any(terms.matches(w) for w in re.findall(r"\w+", title)):
+        return []
+    return [terms.highlight(p) for p in terms.matched_parts(about)]
 
 
 def _article_date(when: datetime, now: datetime) -> str:

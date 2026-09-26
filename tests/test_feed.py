@@ -69,7 +69,8 @@ def client(settings: Settings) -> TestClient:
 
 
 def titles(html: str) -> list[str]:
-    return re.findall(r'class="title" href="[^"]+"[^>]*>([^<]+)</a>', html)
+    found = re.findall(r'class="title" href="[^"]+"[^>]*>(.*?)</a>', html)
+    return [re.sub(r"</?mark>", "", t) for t in found]  # search matches are marked
 
 
 def test_feed_lists_newest_first(client: TestClient) -> None:
@@ -540,8 +541,11 @@ def test_country_filter_and_search_by_who_and_where(tmp_path: Path) -> None:
     hits = titles_for(q="carney", sort="relevance")
     assert hits == ["Carney visits the plant", "Budget talks resume"]  # headline match first
     html = client.get("/", params={"q": "carney"}).text
-    assert "About: Mark Carney · Canada" in html  # why a result matched
-    assert "About:" not in client.get("/").text  # only shown in search results
+    # why each result matched: the name found in the story, or the marked headline
+    assert "Matched: Mark <mark>Carney</mark></p>" in html
+    assert "<mark>Carney</mark> visits the plant" in html
+    assert html.count("Matched:") == 1  # not repeated where the headline shows it
+    assert "Matched:" not in client.get("/").text  # only in search results
     # the Country menu: Canada, US and the EU first, names not codes
     menu = re.search(r'<select name="place".*?</select>', client.get("/").text, re.S)
     assert menu is not None
@@ -552,3 +556,19 @@ def test_country_filter_and_search_by_who_and_where(tmp_path: Path) -> None:
         ("US", "United States"),
         ("EU", "European Union"),
     ]
+
+
+def test_search_terms_show_what_matched() -> None:
+    terms = queries.SearchTerms.parse("mark")
+    assert terms is not None
+    # the last word matches the start of words, as the search does while typing
+    assert str(terms.highlight("Markets rally; Mark Carney <b>")) == (
+        "<mark>Mark</mark>ets rally; <mark>Mark</mark> Carney &lt;b&gt;"
+    )
+    assert terms.matched_parts("Mark Carney · Canada") == ["Mark Carney"]
+    both = queries.SearchTerms.parse("québec mar")
+    assert both is not None  # earlier words match whole; accents and case ignored
+    assert str(both.highlight("Quebec marchers, Québecois")) == (
+        "<mark>Quebec</mark> <mark>mar</mark>chers, Québecois"
+    )
+    assert queries.SearchTerms.parse("  ") is None

@@ -9,6 +9,9 @@ from datetime import UTC, date, datetime, time, timedelta
 from itertools import groupby
 from zoneinfo import ZoneInfo
 
+from markupsafe import Markup, escape
+
+from newsroom.config import normalize_text
 from newsroom.ownership_view import Graph, Node
 from newsroom.places import COUNTRIES, GROUPS, place_codes, place_name
 from newsroom.services.ingest import parse_ts, ts
@@ -151,6 +154,54 @@ def fts_query(text: str) -> str:
     quoted = [f'"{t}"' for t in tokens]
     quoted[-1] += "*"
     return " ".join(quoted)
+
+
+@dataclass(frozen=True)
+class SearchTerms:
+    """The search as the index applies it (see fts_query): every word matched whole,
+    except the last, matched as the start of a word; case and accents ignored. Used to
+    show readers what matched."""
+
+    whole: frozenset[str]
+    prefix: str
+
+    @classmethod
+    def parse(cls, q: str) -> SearchTerms | None:
+        tokens = [normalize_text(t) for t in _TOKEN.findall(q)[:20]]
+        return cls(frozenset(tokens[:-1]), tokens[-1]) if tokens else None
+
+    def matches(self, word: str) -> bool:
+        w = normalize_text(word)
+        return w in self.whole or w.startswith(self.prefix)
+
+    def highlight(self, text: str) -> Markup:
+        """`text`, HTML-escaped, with the matching part of each matching word in <mark>."""
+        out, last = [], 0
+        for m in _TOKEN.finditer(text):
+            out.append(escape(text[last : m.start()]))
+            word = m.group(0)
+            if normalize_text(word) in self.whole:
+                out.append(Markup("<mark>{}</mark>").format(word))
+            elif normalize_text(word).startswith(self.prefix):
+                cut = _prefix_length(word, self.prefix)
+                out.append(Markup("<mark>{}</mark>{}").format(word[:cut], word[cut:]))
+            else:
+                out.append(escape(word))
+            last = m.end()
+        out.append(escape(text[last:]))
+        return Markup("").join(out)
+
+    def matched_parts(self, about: str) -> list[str]:
+        """The names in an `about` line ("Mark Carney · Canada") that the search matched."""
+        return [p for p in about.split(" · ") if any(self.matches(w) for w in _TOKEN.findall(p))]
+
+
+def _prefix_length(word: str, prefix: str) -> int:
+    """How many characters of `word` make up `prefix` once case and accents are ignored."""
+    for i in range(1, len(word) + 1):
+        if normalize_text(word[:i]) == prefix:
+            return i
+    return len(word)
 
 
 @dataclass

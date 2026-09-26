@@ -1,6 +1,6 @@
 {% from "_macros.html" import ownership_text, article_link, article_when %}
 <li class="article">
-  {{ article_link(a.url, a.title, a.language) }}
+  {{ article_link(a.url, a.title, a.language, filters.q) }}
   <div class="meta">
     <a class="outlet" href="/outlet/{{ a.outlet_domain }}">
       {%- if a.logo_path %}<img class="logo" src="/logos/{{ a.logo_path }}" alt="" width="16" height="16" loading="lazy">{% endif -%}
@@ -16,8 +16,9 @@
     </details>
     {% endif %}
   </div>
-  {% if filters.q and a.about %}
-  <p class="about" title="Who and where the story is about, by GDELT's reading of the article">About: {{ a.about }}</p>
+  {% set matched = a.about | matched(filters.q, a.title) %}
+  {% if matched %}
+  <p class="about" title="Found in who or where the story is about (GDELT's reading of the article), not only in the headline">Matched: {{ matched | join(" · ") }}</p>
   {% endif %}
   {% if a.tags %}
   <ul class="tags" aria-label="Tags">
