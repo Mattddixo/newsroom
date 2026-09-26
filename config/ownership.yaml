@@ -15,6 +15,11 @@
 #
 # Check with: make config-check. Applied on the next ownership run, or now: make ownership
 # Review everything with: make ownership-report
+#
+# Upkeep is automatic: on every weekly refresh a correction Wikidata now agrees with stops
+# applying, and `make status` lists it as "no longer needed" (delete it when convenient);
+# it also lists outlets whose ownership changed, and corrections whose source was
+# checked more than a year ago.
 
 corrections:
   # --- owners missing from Wikidata ---

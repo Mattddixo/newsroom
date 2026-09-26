@@ -266,3 +266,10 @@ def summary_text(summary: Summary) -> str:
             text += ", …" if summary.more else ""
         parts.append(text)
     return "; ".join(parts)
+
+
+def ownership_lines(conn: sqlite3.Connection) -> dict[int, str]:
+    """Each active outlet's ownership line, as the site shows it (for the change log)."""
+    graph = Graph.load(conn)
+    rows = conn.execute("SELECT id, entity_id FROM outlets WHERE active = 1").fetchall()
+    return {r["id"]: summary_text(graph.summary(r["entity_id"])) for r in rows}

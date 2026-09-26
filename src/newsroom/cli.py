@@ -409,6 +409,9 @@ def cmd_entities_remove_id(args: argparse.Namespace) -> int:
     return 0
 
 
+CORRECTION_RECHECK_DAYS = 365  # a correction's source is re-checked at least yearly
+
+
 def cmd_status(_: argparse.Namespace) -> int:
     """One-screen overview for routine checks."""
     settings = get_settings()
@@ -475,6 +478,16 @@ def cmd_status(_: argparse.Namespace) -> int:
         checked = one("SELECT min(ownership_checked_at) FROM outlets WHERE active = 1")[0]
         ents = one("SELECT count(*) FROM entities")[0]
         edges = one("SELECT count(*) FROM ownership_edges")[0]
+        week_ago = (datetime.now(UTC) - timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        changes = conn.execute(
+            "SELECT o.display_name, c.changed_at, c.before, c.after FROM ownership_changes c"
+            " JOIN outlets o ON o.id = c.outlet_id WHERE c.changed_at >= ?"
+            " ORDER BY c.changed_at DESC",
+            (week_ago,),
+        ).fetchall()
+        fixes = conn.execute(
+            "SELECT key, state, detail, checked FROM ownership_corrections ORDER BY key"
+        ).fetchall()
         funds = dict(
             conn.execute("SELECT source, count(*) FROM funding_records GROUP BY 1").fetchall()
         )
@@ -525,6 +538,34 @@ def cmd_status(_: argparse.Namespace) -> int:
     print("  outlet matches:  " + ", ".join(f"{k} {v}" for k, v in sorted(matches.items())))
     print(f"  oldest check:    {checked or 'never'}")
     print(f"  entities/links:  {ents} / {edges}")
+    if changes:
+        print(f"  changed in the last 7 days: {len(changes)}")
+        for c in changes:
+            print(
+                f"    {c['display_name']} ({c['changed_at'][:10]}): {c['before']}  ->  {c['after']}"
+            )
+    else:
+        print("  changed in the last 7 days: none")
+    if fixes:
+        due_before = (
+            (datetime.now(UTC) - timedelta(days=CORRECTION_RECHECK_DAYS)).date().isoformat()
+        )
+        by_state = {
+            state: [f for f in fixes if f["state"] == state]
+            for state in ("applied", "retired", "not_found")
+        }
+        due = [f for f in fixes if f["state"] == "applied" and f["checked"] < due_before]
+        print(
+            f"  corrections:     {len(by_state['applied'])} applied,"
+            f" {len(by_state['retired'])} no longer needed, {len(by_state['not_found'])} not found,"
+            f" {len(due)} due for a re-check"
+        )
+        for f in by_state["retired"]:
+            print(f"    no longer needed ({f['detail']}; remove from ownership.yaml): {f['key']}")
+        for f in by_state["not_found"]:
+            print(f"    not found ({f['detail']}): {f['key']}")
+        for f in due:
+            print(f"    source checked {f['checked']}, re-check it: {f['key']}")
     print("Funding")
     print(
         "  records:         " + (", ".join(f"{k} {v}" for k, v in sorted(funds.items())) or "none")

@@ -278,10 +278,12 @@ def _ref_qid(conn: sqlite3.Connection, ref: str) -> str | None:
 
 def resolve_corrections(
     conn: sqlite3.Connection, corrections: Sequence[OwnershipCorrection]
-) -> list[tuple[str, str, OwnershipCorrection]]:
-    """(child QID, target QID, correction) for each correction whose items are known.
-    Unknown ones are logged and skipped (an outlet not matched yet, a misspelt name)."""
+) -> tuple[list[tuple[str, str, OwnershipCorrection]], list[OwnershipCorrection]]:
+    """(child QID, target QID, correction) for each correction whose items are known, and
+    the corrections that aren't (an outlet not matched yet, a misspelt name): logged and
+    skipped."""
     out = []
+    missing = []
     for c in corrections:
         if c.outlet:
             row = conn.execute(
@@ -294,11 +296,12 @@ def resolve_corrections(
         if child and target and child != target:
             out.append((child, target, c))
         else:
+            missing.append(c)
             log.warning(
                 "ownership correction not applied: item not found",
                 extra={"outlet": c.outlet, "entity": c.entity, "target": c.target},
             )
-    return out
+    return out, missing
 
 
 def resolve_ownership(
@@ -320,7 +323,7 @@ def resolve_ownership(
         ids,
     ).fetchall()
     roots = {r["wikidata_qid"] for r in rows if r["wikidata_qid"]}
-    fixes = resolve_corrections(conn, corrections)
+    fixes, missing = resolve_corrections(conn, corrections)
     manual = _manual_parents(conn)
     for child, target, c in fixes:
         if c.action == "add":
@@ -332,6 +335,24 @@ def resolve_ownership(
     labels = source.get_labels(
         {q for d in fetched.values() for q in (*d.instance_of[:3], *d.country)}
     )
+
+    # A correction Wikidata now agrees with isn't needed any more: it stops applying and
+    # `newsroom status` says it can be removed. Decided per item examined in this run.
+    outcome: dict[str, tuple[str, str, str]] = {}  # key -> (state, detail, checked)
+    for child, target, c in fixes:
+        data = fetched.get(child)
+        if child not in examined or data is None:
+            continue
+        listed = any(p.qid == target and p.relation == c.relation for p in data.parents)
+        if c.action == "add" and listed:
+            outcome[c.key] = ("retired", "Wikidata now lists it", c.checked)
+        elif c.action == "remove" and not listed:
+            outcome[c.key] = ("retired", "Wikidata no longer lists it", c.checked)
+        else:
+            outcome[c.key] = ("applied", "", c.checked)
+    for c in missing:
+        outcome[c.key] = ("not_found", "outlet not matched, or name not found", c.checked)
+    retired = {k for k, (state, _, _) in outcome.items() if state == "retired"}
 
     stamp = ts(now)
     conn.execute("BEGIN IMMEDIATE")
@@ -347,6 +368,8 @@ def resolve_ownership(
                 (child,),
             )
             for fix_child, target, c in fixes:
+                if c.key in retired:
+                    continue
                 if fix_child == qid and c.action == "add" and target in entity_ids:
                     conn.execute(
                         "INSERT OR IGNORE INTO ownership_edges (child_entity_id,"
@@ -360,7 +383,7 @@ def resolve_ownership(
                 if parent is None:  # parent item missing or deleted on Wikidata
                     continue
                 fix = set_aside.get((qid, p.qid, p.relation))
-                if fix:
+                if fix and fix.key not in retired:
                     # Out of date by a cited source: kept, marked, not shown as current.
                     conn.execute(
                         "INSERT OR IGNORE INTO ownership_edges (child_entity_id,"
@@ -414,6 +437,20 @@ def resolve_ownership(
                     " logo_source_url = NULL WHERE id = ?",
                     (r["id"],),
                 )
+        for key, (state, detail, checked) in outcome.items():
+            conn.execute(
+                "INSERT INTO ownership_corrections (key, state, detail, checked, updated_at)"
+                " VALUES (?, ?, ?, ?, ?) ON CONFLICT (key) DO UPDATE SET state = excluded.state,"
+                " detail = excluded.detail, checked = excluded.checked,"
+                " updated_at = excluded.updated_at",
+                (key, state, detail, checked, stamp),
+            )
+        current = [c.key for c in corrections]
+        marks = ",".join("?" * len(current)) or "''"
+        conn.execute(
+            f"DELETE FROM ownership_corrections WHERE key NOT IN ({marks})",  # noqa: S608
+            current,
+        )
         _collect_orphans(conn)
         conn.execute("COMMIT")
     except Exception:
@@ -445,6 +482,22 @@ def _collect_orphans(conn: sqlite3.Connection) -> int:
     orphans = all_ids - keep
     conn.executemany("DELETE FROM entities WHERE id = ?", [(i,) for i in orphans])
     return len(orphans)
+
+
+def log_changes(
+    conn: sqlite3.Connection, before: dict[int, str], after: dict[int, str], now: datetime
+) -> int:
+    """Record outlets whose ownership line changed (shown by `newsroom status`)."""
+    changed = [
+        (o, before[o], line) for o, line in after.items() if o in before and before[o] != line
+    ]
+    conn.executemany(
+        "INSERT INTO ownership_changes (outlet_id, changed_at, before, after) VALUES (?, ?, ?, ?)",
+        [(o, ts(now), old, new) for o, old, new in changed],
+    )
+    for o, old, new in changed:
+        log.info("ownership changed", extra={"outlet_id": o, "before": old, "after": new})
+    return len(changed)
 
 
 # ------------------------------------------------------------------ manual curation

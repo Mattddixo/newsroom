@@ -20,6 +20,7 @@ from newsroom.config import (
 from newsroom.db import connect
 from newsroom.net.http import ApiClient, ApiError
 from newsroom.net.safe_fetch import FetchBlocked, FetchResult, safe_fetch
+from newsroom.ownership_view import ownership_lines
 from newsroom.services import feed_ingest, funding, ingest, ownership, pubdates
 from newsroom.services.coverage import build_report as coverage_report
 from newsroom.services.ingest import parse_ts, ts
@@ -406,9 +407,11 @@ def resolve_ownership(
                 raise LookupError(f"unknown outlet(s): {', '.join(sorted(set(domains) - known))}")
             matched = ownership.match_outlets(conn, source, outlets, now) if rematch else None
             corrections = load_ownership_corrections(settings.config_dir / "ownership.yaml")
+            before = ownership_lines(conn)
             summary = ownership.resolve_ownership(
                 conn, source, outlets, now, corrections=corrections
             )
+            ownership.log_changes(conn, before, ownership_lines(conn), now)
             if matched:
                 summary.matched = matched.matched
                 summary.ambiguous = matched.ambiguous

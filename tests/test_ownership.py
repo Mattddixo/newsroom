@@ -644,3 +644,77 @@ def test_summary_names_an_owner_once() -> None:
         Edge(1, 2, "parent_org", None, None, "wikidata", "u", "t"),
     ]
     assert summary_text(Graph(nodes, edges).summary(1)) == "Owned by Warner Bros. Discovery"
+
+
+def test_corrections_retire_when_wikidata_agrees(conn: sqlite3.Connection) -> None:
+    from newsroom.config import OwnershipCorrection as Fix
+
+    def fix(outlet_: str, action: str, target: str) -> Fix:
+        return Fix(outlet_, None, action, "owned_by", target, "https://x.org/s", "2024-01-01")
+
+    fixes = [
+        fix("exampledaily.ca", "add", "Q1002"),  # Wikidata already lists it
+        fix("exampledaily.ca", "remove", "Q1011"),  # Wikidata doesn't list it (any more)
+        fix("exampledaily.ca", "add", "Q1011"),  # a real gap: applied
+        fix("nomatch.org", "add", "Q1011"),  # outlet without an item: not found
+    ]
+    fake = FakeWikidata()
+    source = fake.source()
+    due = ownership.due_outlets(conn, NOW, timedelta(days=7))
+    ownership.match_outlets(conn, source, due, NOW)
+    ownership.resolve_ownership(conn, source, due, NOW, corrections=fixes)
+    states = dict(conn.execute("SELECT key, state FROM ownership_corrections").fetchall())
+    assert states == {
+        "exampledaily.ca add owner: Q1002": "retired",
+        "exampledaily.ca remove owner: Q1011": "retired",
+        "exampledaily.ca add owner: Q1011": "applied",
+        "nomatch.org add owner: Q1011": "not_found",
+    }
+    sources = [
+        r[0]
+        for r in conn.execute(
+            "SELECT e.source FROM ownership_edges e JOIN entities p ON p.id = e.parent_entity_id"
+            " JOIN entities c ON c.id = e.child_entity_id WHERE c.qid = 'Q1001'"
+        )
+    ]
+    assert sorted(sources) == ["correction", "wikidata"]  # Q1002 once, from Wikidata
+    # a correction removed from the file drops out of the list
+    ownership.resolve_ownership(conn, source, due, NOW, corrections=fixes[2:3])
+    assert [r[0] for r in conn.execute("SELECT key FROM ownership_corrections")] == [
+        "exampledaily.ca add owner: Q1011"
+    ]
+
+
+def test_ownership_changes_are_logged_and_reported(
+    conn: sqlite3.Connection,
+    tmp_path: Path,
+    capsys,
+    monkeypatch,  # type: ignore[no-untyped-def]
+) -> None:
+    from newsroom import cli
+    from newsroom.ownership_view import ownership_lines
+
+    resolve_all(conn, FakeWikidata())
+    before = ownership_lines(conn)
+    daily = outlet(conn, "exampledaily.ca")["id"]
+    after = {**before, daily: "Owned by Someone Else"}
+    assert ownership.log_changes(conn, before, after, NOW) == 1
+    assert ownership.log_changes(conn, before, before, NOW) == 0
+    conn.execute(
+        "INSERT INTO ownership_corrections (key, state, detail, checked, updated_at) VALUES"
+        " ('a.ca add owner: Q1', 'retired', 'Wikidata now lists it', '2026-01-01', 'x'),"
+        " ('b.ca add owner: Q2', 'applied', '', '2020-01-01', 'x')"
+    )
+    monkeypatch.setattr(cli, "get_settings", lambda: Settings(data_dir=tmp_path))
+    settings = cli.get_settings()
+    settings.db_path.parent.mkdir(parents=True, exist_ok=True)
+    copy = sqlite3.connect(settings.db_path)
+    conn.backup(copy)
+    copy.close()
+    monkeypatch.setattr(cli, "datetime", type("D", (), {"now": staticmethod(lambda tz=None: NOW)}))
+    cli.cmd_status(None)  # type: ignore[arg-type]
+    out = capsys.readouterr().out
+    assert "changed in the last 7 days: 1" in out
+    assert "->  Owned by Someone Else" in out
+    assert "no longer needed (Wikidata now lists it; remove from ownership.yaml)" in out
+    assert "source checked 2020-01-01, re-check it: b.ca add owner: Q2" in out

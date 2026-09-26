@@ -263,6 +263,12 @@ class OwnershipCorrection:
     checked: str
     note: str = ""
 
+    @property
+    def key(self) -> str:
+        """Stable name for this correction, e.g. "macleans.ca add owner: Q7589303"."""
+        what = "owner" if self.relation == "owned_by" else "parent"
+        return f"{self.outlet or self.entity} {self.action} {what}: {self.target}"
+
 
 def load_ownership_corrections(path: Path) -> list[OwnershipCorrection]:
     """Cited corrections to Wikidata's ownership records. Missing file = none."""
