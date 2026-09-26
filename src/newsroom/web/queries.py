@@ -392,6 +392,13 @@ def feed(
         for r in rows
     ]
     _attach_tags(conn, articles)
+    if f.balanced and f.sort in ("newest", "oldest"):
+        # Break up runs from one outlet, within each day (items never cross a day heading).
+        articles = [
+            a
+            for _, items in groupby(articles, key=lambda a: a.published.date())
+            for a in spread(list(items))
+        ]
     if f.sort == "outlet":
         groups = [
             Group("outlet", list(items), label=name)
@@ -405,6 +412,31 @@ def feed(
             for d, items in groupby(articles, key=lambda a: a.published.date())
         ]
     return FeedPage(groups, total, page, f.per, hidden)
+
+
+SPREAD_LOOKAHEAD = 6  # places a story may move up to break a run
+SPREAD_WINDOW = timedelta(minutes=30)  # ... and only past stories this close in time
+
+
+def spread(articles: list[Article]) -> list[Article]:
+    """The same articles, reordered so one outlet's stories don't sit back to back.
+    Walking the list in order, when the next story is from the outlet just shown, the
+    first nearby story from another outlet (at most SPREAD_LOOKAHEAD places ahead and
+    within SPREAD_WINDOW of it) is shown first. The first story stays first, nothing is
+    added or removed, and a run is left alone when no other outlet published nearby."""
+    rest = list(articles)
+    out: list[Article] = []
+    while rest:
+        pick = 0
+        if out and rest[0].outlet_domain == out[-1].outlet_domain:
+            for i, a in enumerate(rest[1 : SPREAD_LOOKAHEAD + 1], start=1):
+                if abs(a.published - rest[0].published) > SPREAD_WINDOW:
+                    break
+                if a.outlet_domain != out[-1].outlet_domain:
+                    pick = i
+                    break
+        out.append(rest.pop(pick))
+    return out
 
 
 def _attach_tags(conn: sqlite3.Connection, articles: list[Article]) -> None:

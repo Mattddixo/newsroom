@@ -227,10 +227,19 @@ def test_every_filter_and_sort_combination(world: tuple[sqlite3.Connection, list
             ids = [a.id for g in p.groups for a in g.articles]
             assert len(ids) == (p.last - p.first + 1 if p.total else 0), params
             got_ids += ids
+        want_ids = [m["id"] for m in want]
         if sort == "relevance":
-            assert sorted(got_ids) == sorted(m["id"] for m in want), params
+            assert sorted(got_ids) == sorted(want_ids), params
+        elif f.balanced and sort in ("newest", "oldest"):
+            # interleaved to break up one outlet's runs: the same articles on each page,
+            # none moved more than a few places from its place in time order
+            for start in range(0, len(want_ids), 25):
+                chunk = slice(start, start + 25)
+                assert sorted(got_ids[chunk]) == sorted(want_ids[chunk]), params
+            for i, a in enumerate(got_ids):
+                assert abs(want_ids.index(a) - i) <= queries.SPREAD_LOOKAHEAD, params
         else:
-            assert got_ids == [m["id"] for m in want], params
+            assert got_ids == want_ids, params
         checked += 1
     assert checked > 2000
 

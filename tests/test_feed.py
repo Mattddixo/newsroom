@@ -450,3 +450,50 @@ def test_new_articles_wait_for_their_date_check(settings: Settings) -> None:
 def test_no_hold_when_dates_are_not_checked(settings: Settings, client: TestClient) -> None:
     add_articles(settings, 1)  # collected just now, never date-checked
     assert "Bulk story 000" in client.get("/", params={"mix": "all"}).text
+
+
+def _stories(*items: tuple[str, int]) -> list[queries.Article]:
+    """(outlet, minutes before NOW) -> articles, newest first as the feed lists them."""
+    return [
+        queries.Article(i, f"https://{o}/{i}", f"t{i}", NOW - timedelta(minutes=m), o, o)
+        for i, (o, m) in enumerate(items)
+    ]
+
+
+def outlets_of(articles: list[queries.Article]) -> str:
+    return "".join(a.outlet_domain for a in articles)
+
+
+def test_spread_breaks_up_one_outlets_run() -> None:
+    run = _stories(("A", 0), ("A", 2), ("A", 4), ("B", 5), ("C", 9), ("A", 12))
+    got = queries.spread(run)
+    assert outlets_of(got) == "ABACAA"
+    assert got[0] is run[0]  # the newest story stays on top
+    assert sorted(a.id for a in got) == [a.id for a in run]  # nothing added or lost
+
+
+def test_spread_keeps_time_order_when_nothing_is_near() -> None:
+    # B is an hour away: pulling it forward would misplace it in time, so the run stays
+    run = _stories(("A", 0), ("A", 2), ("A", 4), ("B", 64))
+    assert outlets_of(queries.spread(run)) == "AAAB"
+    assert queries.spread([]) == []
+
+
+def test_balanced_feed_interleaves_but_everything_stays_in_order(tmp_path: Path) -> None:
+    s = Settings(data_dir=tmp_path, rate_limit="1000/minute")
+    conn = make_db(s.db_path, NOW)
+    records = [
+        rec("https://cbc.ca/1", "c1", NOW - timedelta(minutes=1)),
+        rec("https://cbc.ca/2", "c2", NOW - timedelta(minutes=2)),
+        rec("https://cbc.ca/3", "c3", NOW - timedelta(minutes=3)),
+        rec("https://nytimes.com/1", "n1", NOW - timedelta(minutes=4), "nytimes.com"),
+        rec("https://nytimes.com/2", "n2", NOW - timedelta(minutes=5), "nytimes.com"),
+    ]
+    run_ingest(conn, FakeSource([QueryResult("q", records)]), Tagger(TAGS), now=NOW)
+
+    def titles_for(mix: str) -> list[str]:
+        f = queries.FeedFilters(mix=mix)
+        return [a.title for g in queries.feed(conn, f, TZ).groups for a in g.articles]
+
+    assert titles_for("balanced") == ["c1", "n1", "c2", "n2", "c3"]
+    assert titles_for("all") == ["c1", "c2", "c3", "n1", "n2"]  # strict time order
