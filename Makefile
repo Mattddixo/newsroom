@@ -2,7 +2,7 @@
 COMPOSE := docker compose
 
 .DEFAULT_GOAL := help
-.PHONY: help setup init host-setup up down restart logs ps status shell ingest-now retag config-check date-check date-audit coverage feeds outlets unmatched ownership funding backup-db migrate test audit verify lint
+.PHONY: help setup init host-setup up down restart logs ps status shell ingest-now retag config-check date-check date-audit coverage feeds outlets unmatched ownership ownership-report funding backup-db migrate test audit verify lint
 
 help: ## List targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  %-12s %s\n", $$1, $$2}'
@@ -72,6 +72,9 @@ unmatched: ## Outlets without a Wikidata match, with candidates
 
 ownership: ## Re-resolve ownership for every outlet now
 	$(COMPOSE) exec worker newsroom ownership resolve --all
+
+ownership-report: ## Every outlet's Wikidata item and ownership line, problems flagged first
+	$(COMPOSE) exec worker newsroom ownership report
 
 funding: ## Look up funding records now and apply config/public_funding.yaml
 	$(COMPOSE) exec worker newsroom funding refresh

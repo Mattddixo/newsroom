@@ -233,6 +233,46 @@ def cmd_ownership_resolve(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_ownership_report(_: argparse.Namespace) -> int:
+    """Every outlet's Wikidata item and ownership line, with anything worth checking
+    flagged first."""
+    from newsroom.ownership_view import summary_text
+
+    conn = connect(get_settings().db_path)
+    try:
+        graph = Graph.load(conn)
+        outlets = conn.execute(
+            "SELECT domain, display_name, match_status, match_note, entity_id FROM outlets"
+            " WHERE active = 1 ORDER BY domain"
+        ).fetchall()
+    finally:
+        conn.close()
+    rows = []
+    for o in outlets:
+        node = graph.nodes.get(o["entity_id"]) if o["entity_id"] else None
+        summary = graph.summary(o["entity_id"])
+        flags = []
+        if node is None:
+            flags.append("no Wikidata item")
+        elif not summary.direct:
+            flags.append("no owner listed")
+        if node and "website" in f"{node.description} {node.kind}".lower():
+            flags.append("item is the website, not the outlet?")
+        item = f"{node.qid} {node.name} ({node.description or node.kind or '-'})" if node else "-"
+        rows.append((bool(flags), o, item, summary_text(summary), flags))
+    rows.sort(key=lambda r: (not r[0], r[1]["domain"]))
+    for flagged, o, item, line, flags in rows:
+        mark = "CHECK " if flagged else "      "
+        print(f"{mark}{o['domain']}  ({o['display_name']})")
+        print(f"        item:  {item}  [{o['match_status']}]")
+        print(f"        shown: {line}")
+        if flags:
+            print(f"        flags: {'; '.join(flags)}")
+    n = sum(1 for r in rows if r[0])
+    print(f"\n{n} of {len(rows)} outlets flagged.")
+    return 0
+
+
 def cmd_ownership_show(args: argparse.Namespace) -> int:
     conn = connect(get_settings().db_path)
     try:
@@ -642,6 +682,9 @@ def build_parser() -> argparse.ArgumentParser:
     resolve.add_argument("domains", nargs="*")
     resolve.add_argument("--all", action="store_true", help="every active outlet, now")
     resolve.set_defaults(func=cmd_ownership_resolve)
+    own.add_parser(
+        "report", help="every outlet's Wikidata item and ownership line, problems first"
+    ).set_defaults(func=cmd_ownership_report)
     show = own.add_parser("show", help="print an outlet's ownership chain with sources")
     show.add_argument("domain")
     show.set_defaults(func=cmd_ownership_show)

@@ -305,6 +305,14 @@ def resolve_ownership(
                 parent = entity_ids.get(p.qid)
                 if parent is None:  # parent item missing or deleted on Wikidata
                     continue
+                if fetched[p.qid].died:
+                    # "owned by" a person who has since died: the statement lacks an end
+                    # date, but it can't be current. Left out, like an ended statement.
+                    log.info(
+                        "ownership statement points at a person who has died; not used",
+                        extra={"child": qid, "owner": p.qid, "died": fetched[p.qid].died},
+                    )
+                    continue
                 conn.execute(
                     "INSERT OR IGNORE INTO ownership_edges (child_entity_id, parent_entity_id,"
                     " relation, share, start_date, source, source_url, retrieved_at)"

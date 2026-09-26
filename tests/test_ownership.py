@@ -490,3 +490,51 @@ def test_owner_type_is_the_most_telling_kind(kind: str, shown: str) -> None:
     from newsroom.ownership_view import Node
 
     assert Node(1, "Q1", "X", "", kind, "", None, "u", "t").type_label == shown
+
+
+def _claim(prop_value: str) -> dict:
+    return {
+        "rank": "normal",
+        "mainsnak": {"snaktype": "value", "datavalue": {"value": {"id": prop_value}}},
+    }
+
+
+def test_a_person_who_has_died_is_not_a_current_owner(conn: sqlite3.Connection) -> None:
+    fake = FakeWikidata()
+    founder = {
+        "id": "Q9001",
+        "labels": {"en": {"value": "Late Founder"}},
+        "claims": {
+            "P31": [_claim("Q5")],
+            "P570": [
+                {
+                    "rank": "normal",
+                    "mainsnak": {
+                        "snaktype": "value",
+                        "datavalue": {"value": {"time": "+2012-03-01T00:00:00Z", "precision": 11}},
+                    },
+                }
+            ],
+        },
+    }
+    fake.entities["Q9001"] = founder
+    daily = fake.entities["Q1001"]
+    daily["claims"]["P127"] = [*daily["claims"]["P127"], _claim("Q9001")]
+    resolve_all(conn, fake)
+    graph = Graph.load(conn)
+    s = graph.summary(outlet(conn, "exampledaily.ca")["entity_id"])
+    # the statement has no end date, but its owner died in 2012: left out
+    assert [n.qid for _, n in s.direct] == ["Q1002"]
+
+
+def test_ownership_report(conn: sqlite3.Connection, tmp_path: Path, capsys, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    from newsroom import cli
+
+    resolve_all(conn, FakeWikidata())
+    monkeypatch.setattr(cli, "get_settings", lambda: Settings(data_dir=tmp_path))
+    monkeypatch.setattr(cli, "connect", lambda _: conn)
+    assert cli.cmd_ownership_report(None) == 0  # type: ignore[arg-type]
+    out = capsys.readouterr().out
+    assert "CHECK nomatch.org" in out and "flags: no Wikidata item" in out
+    assert "CHECK unknownowner.com" in out and "no owner listed" in out
+    assert "shown: Owned by Example Media Group, whose owner is Example Family Trust, …" in out

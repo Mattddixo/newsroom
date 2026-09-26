@@ -8,6 +8,8 @@ Only statements Wikidata itself calls current are used:
   - a person (instance of human, Q5) has no owners: a person can't be owned, so an
     "owned by" / "parent organization" statement on one is a data error (for example a
     team a person has a stake in), and the chain stops there
+  - a person's date of death (P570) is kept: someone who has died can't be a current
+    owner, so an ownership statement pointing at them is out of date (see ownership)
 Nothing is inferred: if a property is absent, the field is absent.
 """
 
@@ -41,6 +43,7 @@ P_PARENT_ORG = "P749"
 P_WEBSITE = "P856"
 P_LOGO = "P154"
 P_START = "P580"
+P_DIED = "P570"
 P_END = "P582"
 P_SHARE = "P1107"
 IDENTIFIER_PROPERTIES = {"P5531": "sec_cik", "P1297": "us_ein"}
@@ -90,6 +93,7 @@ class EntityData:
     logo_file: str | None = None
     parents: list[ParentClaim] = field(default_factory=list)
     identifiers: dict[str, list[str]] = field(default_factory=dict)
+    died: str | None = None  # a person's date of death, as precise as Wikidata gives it
 
 
 # --------------------------------------------------------------------------- parsing
@@ -254,6 +258,12 @@ def parse_entity(entity: dict, now: datetime) -> EntityData | None:
     data.website = data.websites[0] if data.websites else None
     logos = _string_values(_best_statements(claims, P_LOGO, now))
     data.logo_file = logos[0] if logos else None
+    if Q_HUMAN in data.instance_of:
+        for st in _best_statements(claims, P_DIED, now):
+            parsed = _parse_time(st["mainsnak"])
+            if parsed and parsed[1] <= now:
+                data.died = parsed[0]
+                break
     if Q_HUMAN not in data.instance_of:  # a person has no owners (see module docstring)
         for prop, relation in RELATIONS.items():
             for s in _best_statements(claims, prop, now):

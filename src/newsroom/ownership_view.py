@@ -226,3 +226,20 @@ class Graph:
                 seen.add(e.parent)
                 current = e.parent
         return Summary(self.nodes[entity_id], direct, above, more)
+
+
+def summary_text(summary: Summary) -> str:
+    """The card's one-line summary as plain text (same wording as the web page)."""
+    if not summary.direct:
+        return "No owner listed on Wikidata" if summary.entity else "Owner: no record found"
+    parts = []
+    for i, (edge, node) in enumerate(summary.direct):
+        label = edge.label if i == 0 else edge.label.lower()
+        colon = ":" if edge.relation == "parent_org" else ""
+        share = f" ({edge.share * 100:.4g}%)" if edge.share else ""
+        text = f"{label}{colon} {node.name}{share}"
+        if i == 0:
+            text += "".join(f", {e.whose} {n.name}" for e, n in summary.above)
+            text += ", …" if summary.more else ""
+        parts.append(text)
+    return "; ".join(parts)
