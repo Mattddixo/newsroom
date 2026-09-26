@@ -104,7 +104,9 @@ def test_chain_resolution_with_sources(conn: sqlite3.Connection) -> None:
 
     s = graph.summary(daily.id)
     assert [n.qid for _, n in s.direct] == ["Q1002"]
-    assert [n.qid for n in s.ultimate] == ["Q1003"]  # the only entity with no recorded parent
+    # the line follows the first owner at each step; the branch (Q1003) is flagged as "more"
+    assert [(e.relation, n.qid) for e, n in s.above] == [("owned_by", "Q1004")]
+    assert s.more
 
     # Nothing we were told to ignore made it in
     qids = {r[0] for r in conn.execute("SELECT qid FROM entities")}
@@ -116,7 +118,7 @@ def test_unknown_owner_and_unmatched_are_not_disclosed(conn: sqlite3.Connection)
     graph = Graph.load(conn)
     weekly = outlet(conn, "unknownowner.com")
     s = graph.summary(weekly["entity_id"])
-    assert s.entity is not None and s.direct == [] and s.ultimate == []
+    assert s.entity is not None and s.direct == [] and s.above == []
     assert graph.summary(outlet(conn, "nomatch.org")["entity_id"]).entity is None
 
 
@@ -294,8 +296,8 @@ def client(tmp_path: Path) -> TestClient:
 
 def test_card_ownership_line(client: TestClient) -> None:
     html = client.get("/").text
-    assert "Owned by Example Media Group · ultimately Example Holdings Inc." in html
-    assert "Owner: Not publicly disclosed" in html
+    assert "Owned by Example Media Group, whose owner is Example Family Trust, …" in html
+    assert "Owner: no record found" in html
     assert 'hx-get="/fragments/ownership/exampledaily.ca"' in html
     assert '<img class="logo" src="/logos/Q1001.png"' in html
 
@@ -317,7 +319,7 @@ def test_outlet_page(client: TestClient) -> None:
     assert "Housing news" in html
     assert "Wikimedia Commons" in html
     unmatched = client.get("/outlet/nomatch.org").text
-    assert '<a href="/about#not-disclosed">Not publicly disclosed</a>' in unmatched
+    assert '<a href="/about#no-record">no record found</a>' in unmatched
     assert client.get("/outlet/not-an-outlet.com").status_code == 404
     assert client.get("/outlet/..%2Fetc").status_code == 404
 
@@ -350,15 +352,15 @@ def test_logo_route(client: TestClient) -> None:
 
 def test_outlets_and_about_pages(client: TestClient) -> None:
     html = client.get("/outlets").text
-    assert "Example Daily" in html and "Not publicly disclosed" in html
-    assert 'id="not-disclosed"' in client.get("/about").text
+    assert "Example Daily" in html and "no record found" in html
+    assert 'id="no-record"' in client.get("/about").text
 
 
 def test_tables_and_funding_link_to_owner_pages(client: TestClient) -> None:
     outlets = client.get("/outlets").text
     assert 'Owned by <a href="/owner/Q1002">Example Media Group</a>' in outlets
-    assert 'ultimately <a href="/owner/Q1003">Example Holdings Inc.</a>' in outlets
-    assert 'Owner: <a href="/about#not-disclosed">Not publicly disclosed</a>' in outlets
+    assert 'whose owner is <a href="/owner/Q1004">Example Family Trust</a>' in outlets
+    assert 'Owner: <a href="/about#no-record">no record found</a>' in outlets
     assert 'href="/?country=CA"' in outlets
     owner = client.get("/owner/Q1003").text
     assert '<a href="/owner/Q1002">Example Media Group</a>' in owner  # held through
@@ -472,3 +474,19 @@ def test_outlets_yaml_pin(conn: sqlite3.Connection) -> None:
     sync_outlets(conn, OUTLETS, NOW)  # the line removed: automatic again
     back = outlet(conn, "exampledaily.ca")
     assert (back["match_status"], back["wikidata_qid"]) == ("unmatched", None)
+
+
+@pytest.mark.parametrize(
+    ("kind", "shown"),
+    [
+        ("broadcaster; production company; Crown corporation", "Crown corporation"),
+        ("newspaper; public company", "public company"),
+        ("human", "person"),
+        ("television network", "television network"),  # nothing better: the first
+        ("", ""),
+    ],
+)
+def test_owner_type_is_the_most_telling_kind(kind: str, shown: str) -> None:
+    from newsroom.ownership_view import Node
+
+    assert Node(1, "Q1", "X", "", kind, "", None, "u", "t").type_label == shown

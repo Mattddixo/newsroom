@@ -9,6 +9,29 @@ import sqlite3
 from dataclasses import dataclass, field
 
 RELATION_LABELS = {"owned_by": "Owned by", "parent_org": "Parent organization"}
+# In a running sentence: "Owned by X, whose parent organization is Y".
+RELATION_WHOSE = {"owned_by": "whose owner is", "parent_org": "whose parent organization is"}
+# Kinds that say what an owner *is* in ownership terms (a Crown corporation, a public
+# company, a co-operative...) rather than what it does (a broadcaster). Checked in order.
+LEGAL_FORM_WORDS = (
+    "crown corporation",
+    "public company",
+    "privately held",
+    "company",
+    "corporation",
+    "cooperative",
+    "co-operative",
+    "nonprofit",
+    "non-profit",
+    "foundation",
+    "trust",
+    "department",
+    "ministry",
+    "agency",
+    "government",
+    "partnership",
+)
+SUMMARY_DEPTH = 3  # owners named in the one-line summary beyond the direct one
 
 
 @dataclass(frozen=True)
@@ -22,6 +45,23 @@ class Node:
     website: str | None
     source_url: str
     retrieved_at: str
+
+    @property
+    def kinds(self) -> list[str]:
+        return [k.strip() for k in self.kind.split(";") if k.strip()]
+
+    @property
+    def type_label(self) -> str:
+        """The one kind that best says what this owner is, e.g. "Crown corporation" out of
+        "broadcaster; production company; Crown corporation". As Wikidata words it."""
+        kinds = self.kinds
+        if "human" in kinds:
+            return "person"
+        for word in LEGAL_FORM_WORDS:
+            for k in kinds:
+                if word in k.lower():
+                    return k
+        return kinds[0] if kinds else ""
 
 
 @dataclass(frozen=True)
@@ -39,6 +79,10 @@ class Edge:
     def label(self) -> str:
         return RELATION_LABELS[self.relation]
 
+    @property
+    def whose(self) -> str:
+        return RELATION_WHOSE[self.relation]
+
 
 @dataclass
 class Step:
@@ -52,11 +96,14 @@ class Step:
 
 @dataclass
 class Summary:
-    """What the article card shows for an outlet."""
+    """What the article card shows for an outlet: its direct owners, and the chain above
+    the first of them (first recorded owner at each step, up to SUMMARY_DEPTH), each with
+    the relation Wikidata states."""
 
     entity: Node | None
     direct: list[tuple[Edge, Node]]
-    ultimate: list[Node]
+    above: list[tuple[Edge, Node]] = field(default_factory=list)
+    more: bool = False  # the chain branches or goes on beyond `above` (shown as "…")
 
 
 class Graph:
@@ -159,10 +206,23 @@ class Graph:
 
     def summary(self, entity_id: int | None) -> Summary:
         if entity_id is None or entity_id not in self.nodes:
-            return Summary(None, [], [])
+            return Summary(None, [])
         direct = [(e, self.nodes[e.parent]) for e in self.up.get(entity_id, [])]
-        ultimate = self.ultimate(entity_id)
-        direct_ids = {n.id for _, n in direct}
-        if {n.id for n in ultimate} <= direct_ids:
-            ultimate = []  # nothing more to say beyond the direct owner
-        return Summary(self.nodes[entity_id], direct, ultimate)
+        above: list[tuple[Edge, Node]] = []
+        more = False
+        if direct:
+            seen = {entity_id, direct[0][1].id}
+            current = direct[0][1].id
+            while self.up.get(current):
+                if len(self.up[current]) > 1:
+                    more = True  # other owners at this step: in the full chain, not the line
+                e = self.up[current][0]
+                if e.parent in seen:
+                    break  # the records loop back
+                if len(above) == SUMMARY_DEPTH:
+                    more = True
+                    break
+                above.append((e, self.nodes[e.parent]))
+                seen.add(e.parent)
+                current = e.parent
+        return Summary(self.nodes[entity_id], direct, above, more)

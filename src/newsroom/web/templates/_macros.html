@@ -1,55 +1,63 @@
-{# Compact ownership line: plain text (it sits inside <summary>, so no links). #}
+{# One-line ownership summary, keeping Wikidata's relation words:
+   "Owned by X, whose parent organization is Y". Plain text: it sits inside <summary>. #}
 {% macro ownership_text(summary) -%}
 {% if summary.direct -%}
   {% for edge, node in summary.direct -%}
-    {% if edge.relation == "owned_by" %}Owned by{% else %}Parent organization:{% endif %} {{ node.name }}{% if edge.share %} ({{ edge.share | pct }}){% endif %}{% if not loop.last %}; {% endif %}
+    {% if loop.first %}{{ edge.label }}{% else %}{{ edge.label | lower }}{% endif %}{% if edge.relation == "parent_org" %}:{% endif %} {{ node.name }}{% if edge.share %} ({{ edge.share | pct }}){% endif %}
+    {%- if loop.first %}{% for e, n in summary.above %}, {{ e.whose }} {{ n.name }}{% endfor %}{% if summary.more %}, …{% endif %}{% endif %}
+    {%- if not loop.last %}; {% endif %}
   {%- endfor %}
-  {%- if summary.ultimate %} · ultimately {% for n in summary.ultimate %}{{ n.name }}{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}
 {%- elif summary.entity -%}
-  No owner recorded
+  No owner listed on Wikidata
 {%- else -%}
-  Owner: Not publicly disclosed
+  Owner: no record found
 {%- endif %}
 {%- endmacro %}
 
-{# Same line with every name linked to its owner page, for tables (not inside <summary>). #}
+{# The same line with every name linked to its owner page, for tables. #}
 {% macro ownership_links(summary) -%}
 {% if summary.direct -%}
   {% for edge, node in summary.direct -%}
-    {% if edge.relation == "owned_by" %}Owned by{% else %}Parent organization:{% endif %} <a href="/owner/{{ node.qid }}">{{ node.name }}</a>{% if edge.share %} ({{ edge.share | pct }}){% endif %}{% if not loop.last %}; {% endif %}
+    {% if loop.first %}{{ edge.label }}{% else %}{{ edge.label | lower }}{% endif %}{% if edge.relation == "parent_org" %}:{% endif %} <a href="/owner/{{ node.qid }}">{{ node.name }}</a>{% if edge.share %} ({{ edge.share | pct }}){% endif %}
+    {%- if loop.first %}{% for e, n in summary.above %}, {{ e.whose }} <a href="/owner/{{ n.qid }}">{{ n.name }}</a>{% endfor %}{% if summary.more %}, …{% endif %}{% endif %}
+    {%- if not loop.last %}; {% endif %}
   {%- endfor %}
-  {%- if summary.ultimate %} · ultimately {% for n in summary.ultimate %}<a href="/owner/{{ n.qid }}">{{ n.name }}</a>{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}
 {%- elif summary.entity -%}
   {{ no_owner() }}
 {%- else -%}
-  Owner: {{ not_disclosed() }}
+  Owner: {{ no_record() }}
 {%- endif %}
 {%- endmacro %}
 
-{# Full chain as nested lists, every link with its source. #}
+{# A small "source" link; where it comes from and when, on hover. #}
+{% macro source_link(url, retrieved_at, what, verb="retrieved") -%}
+<a class="src-link" href="{{ url }}" target="_blank" rel="noopener noreferrer" title="{{ what }}, {{ verb }} {{ retrieved_at[:10] }}">source</a>
+{%- endmacro %}
+
+{# The full chain as nested lists: each owner with what it is, and its source. #}
 {% macro chain(steps) -%}
 <ul class="chain">
   {% for step in steps %}
   <li>
     <span class="rel">{{ step.edge.label }}</span>
-    <a href="/owner/{{ step.parent.qid }}">{{ step.parent.name }}</a>
+    <a class="owner" href="/owner/{{ step.parent.qid }}">{{ step.parent.name }}</a>
     {%- if step.edge.share %} <span class="share">({{ step.edge.share | pct }})</span>{% endif %}
-    {%- if step.edge.start_date %} <span class="muted">since {{ step.edge.start_date }}</span>{% endif %}
-    {%- if step.parent.kind %} <span class="muted">· {{ step.parent.kind }}{% if step.parent.country %}, {{ step.parent.country }}{% endif %}</span>{% endif %}
-    <span class="src">Source: <a href="{{ step.edge.source_url }}" target="_blank" rel="noopener noreferrer">{% if step.edge.source == "wikidata" %}Wikidata {{ step.edge.source_url.rsplit('/', 1)[-1] }}{% else %}{{ step.edge.source_url }}{% endif %}</a>, retrieved {{ step.edge.retrieved_at[:10] }}{% if step.edge.source == "manual" %} (added manually){% endif %}</span>
-    {% if step.cycle %}<span class="muted">(already listed above; the records loop back)</span>
+    {%- if step.parent.type_label %} <span class="kind" title="{{ step.parent.kinds | join(', ') }}">{{ step.parent.type_label }}{% if step.parent.country %} · {{ step.parent.country }}{% endif %}</span>{% endif %}
+    {%- if step.edge.start_date %} <span class="kind">since {{ step.edge.start_date }}</span>{% endif %}
+    {{ source_link(step.edge.source_url, step.edge.retrieved_at, ("Wikidata " ~ step.edge.source_url.rsplit('/', 1)[-1]) if step.edge.source == "wikidata" else "Added by hand from " ~ step.edge.source_url) }}
+    {% if step.cycle %}<span class="kind">(listed above; the records loop back)</span>
     {% elif step.above %}{{ chain(step.above) }}{% endif %}
   </li>
   {% endfor %}
 </ul>
 {%- endmacro %}
 
-{% macro not_disclosed() -%}
-<a href="/about#not-disclosed">Not publicly disclosed</a>
+{% macro no_record() -%}
+<a href="/about#no-record">no record found</a>
 {%- endmacro %}
 
 {% macro no_owner() -%}
-<a href="/about#no-owner-recorded">No owner recorded</a>
+<a href="/about#no-owner-listed">No owner listed on Wikidata</a>
 {%- endmacro %}
 
 {# Funding records with their sources. `rows` come ordered outlet-first, then owners. #}
@@ -63,12 +71,12 @@
     {%- if r.amount is not none %}: <strong>{{ r.amount | money(r.currency) }}</strong>{% endif %}
     {%- if r.period %} · {{ r.period }}{% endif %}
     {%- if r.funder %} · from {{ r.funder }}{% endif %}
-    <span class="src">Source: <a href="{{ r.source_url }}" target="_blank" rel="noopener noreferrer">{{ r | source_name }}</a>, {% if r.source == "curated" %}checked{% else %}retrieved{% endif %} {{ r.retrieved_at[:10] }}</span>
+    {{ source_link(r.source_url, r.retrieved_at, r | source_name, "checked" if r.source == "curated" else "retrieved") }}
   </li>
   {% endfor %}
 </ul>
 {% else %}
-<p>Funding: {{ not_disclosed() }}</p>
+<p class="kind">No funding record found in <a href="/about#funding">the sources this site checks</a>.</p>
 {% endif %}
 {%- endmacro %}
 

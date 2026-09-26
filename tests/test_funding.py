@@ -307,7 +307,7 @@ def test_panel_shows_owner_funding_with_sources(client: TestClient) -> None:
     who = '<a class="who" href="/owner/Q1003">Example Holdings Inc.</a>'
     assert f"{who}: Latest annual report (Form 40-F)" in html
     assert 'href="https://www.sec.gov/Archives/edgar/data/123456/' in html
-    assert "Source: <a" in html and ">SEC EDGAR</a>, retrieved 2026-09-24" in html
+    assert 'title="SEC EDGAR, retrieved 2026-09-24">source</a>' in html
 
 
 def test_nonprofit_funding_amounts(client: TestClient) -> None:
@@ -315,17 +315,21 @@ def test_nonprofit_funding_amounts(client: TestClient) -> None:
     assert "Total revenue (IRS Form 990): <strong>US$45,123,456</strong> · Tax year 2023" in html
     assert "ProPublica Nonprofit Explorer" in html
     # matched, but Wikidata records no owner
-    assert '<a href="/about#no-owner-recorded">No owner recorded</a>' in html
+    assert '<a href="/about#no-owner-listed">No owner listed on Wikidata</a>' in html
 
 
 def test_wording_for_missing_records(client: TestClient) -> None:
     feed = client.get("/").text
-    assert "No owner recorded" in feed  # unknownowner.com card
-    assert "Owner: Not publicly disclosed" in feed  # nomatch.org card
+    assert "No owner listed on Wikidata" in feed  # unknownowner.com card
+    assert "Owner: no record found" in feed  # nomatch.org card
+    assert "Not publicly disclosed" not in feed  # a claim about the outlet, not our sources
     html = client.get("/outlet/nomatch.org").text
-    assert 'Funding: <a href="/about#not-disclosed">Not publicly disclosed</a>' in html
+    assert (
+        'No funding record found in <a href="/about#funding">the sources this site checks</a>'
+        in html
+    )
     about = client.get("/about").text
-    assert 'id="no-owner-recorded"' in about and "ProPublica" in about
+    assert 'id="no-owner-listed"' in about and 'id="no-record"' in about and "ProPublica" in about
 
 
 def test_owner_page_funding(client: TestClient) -> None:

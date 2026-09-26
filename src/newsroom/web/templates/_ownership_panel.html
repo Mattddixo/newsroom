@@ -1,10 +1,8 @@
-{% from "_macros.html" import chain as render_chain, not_disclosed, no_owner, funding %}
+{% from "_macros.html" import chain as render_chain, no_record, no_owner, funding %}
 {% if node %}
-  <p class="panel-head"><a href="/owner/{{ node.qid }}">{{ node.name }}</a>
-    <span class="src">Source: <a href="{{ node.source_url }}" target="_blank" rel="noopener noreferrer">Wikidata {{ node.qid }}</a>, retrieved {{ node.retrieved_at[:10] }}</span></p>
   {% if chain %}{{ render_chain(chain) }}{% else %}<p>{{ no_owner() }}</p>{% endif %}
 {% else %}
-  <p>Owner: {{ not_disclosed() }}</p>
+  <p>Owner: {{ no_record() }}</p>
 {% endif %}
 {{ funding(funding_rows, graph, 3) }}
-<p class="panel-more"><a href="/outlet/{{ outlet.domain }}">{{ outlet.display_name }}: outlet page</a></p>
+<p class="panel-more"><a href="/outlet/{{ outlet.domain }}">More about {{ outlet.display_name }}</a></p>

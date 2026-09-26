@@ -7,14 +7,16 @@
 
 <h2 id="terms">What the labels mean</h2>
 <dl>
-  <dt id="not-disclosed">Not publicly disclosed</dt>
-  <dd>No public record was found. This says nothing about the outlet itself.</dd>
-  <dt id="no-owner-recorded">No owner recorded</dt>
+  <dt id="no-record">No record found</dt>
+  <dd>None of the sources this site checks has a record of this, so nothing is shown. It says nothing about the outlet: the information may well be public elsewhere.</dd>
+  <dt id="no-owner-listed">No owner listed on Wikidata</dt>
   <dd>The outlet has a Wikidata entry, but it doesn't list an owner. This is common for independent and nonprofit outlets, but the entry may also be incomplete.</dd>
   <dt>Owned by / Parent organization</dt>
-  <dd>Two different Wikidata statements, shown as recorded. A percentage appears only when the record gives one.</dd>
-  <dt>Ultimately</dt>
-  <dd>The top of the ownership chain, as far as the records go.</dd>
+  <dd>Two different Wikidata statements, shown as recorded. "Parent organization" means the organization this one belongs to, which isn't always an owner: a Crown corporation's parent organization is a government department. A percentage appears only when the record gives one.</dd>
+  <dt>"whose owner is" / "whose parent organization is"</dt>
+  <dd>The chain above the direct owner, one record at a time, as far as the records go. The outlet page shows the whole chain.</dd>
+  <dt>source</dt>
+  <dd>Each record links to where it comes from. Hover over the link to see the record and the date it was retrieved.</dd>
   <dt>Published / Seen</dt>
   <dd>Published is the time given on the article page. Seen is when the article was first picked up. It's shown when the page gives no date, and can be later than the real publication time.</dd>
 </dl>
@@ -31,7 +33,7 @@
 <p>A date isn't used if it's later than when the article was first picked up, or if the page's own date tags contradict each other about the time zone. Those articles show when they were seen instead.</p>
 
 <h2 id="ownership">Ownership</h2>
-<p>Each outlet is matched to its Wikidata entry by its website, and the outlet page says how the match was made. From there the site follows "owned by" and "parent organization" upward, up to ten levels. Only current records are used, and ownership is rechecked weekly. Any link added by hand is labelled and cites its own source.</p>
+<p>Each outlet is matched to its Wikidata entry by its official website. When several entries list that website, the one Wikidata classifies as a news outlet is used; when none does, a search by name is accepted only if the result's website is the outlet's own. The outlet page says how each match was made. From there the site follows "owned by" and "parent organization" upward, up to ten levels, and stops at a person (people aren't owned). Only current records are used, and ownership is rechecked weekly. Any link added by hand is labelled and cites its own source.</p>
 
 <h2 id="funding">Funding</h2>
 <p>Shown only where a public record exists:</p>
@@ -41,6 +43,7 @@
   <li><strong>Canadian charities:</strong> their listing with the Canada Revenue Agency.</li>
   <li><strong>Public broadcasters and others:</strong> figures as published in annual reports or government documents.</li>
 </ul>
+<p>Where none of these has a record, the page says so; that isn't a claim that the outlet hides its funding.</p>
 
 <h2 id="not-included">What this site doesn't do</h2>
 <ul>

@@ -247,7 +247,7 @@ def cmd_ownership_show(args: argparse.Namespace) -> int:
     print(f"  match: {outlet['match_status']} {outlet['wikidata_qid'] or ''}")
     node = graph.nodes.get(outlet["entity_id"]) if outlet["entity_id"] else None
     if node is None:
-        print("  ownership: Not publicly disclosed (no Wikidata item)")
+        print("  ownership: no record found (no Wikidata item matched)")
         return 0
     print(f"  item: {node.name} [{node.qid}]  {node.source_url}")
 
@@ -265,7 +265,7 @@ def cmd_ownership_show(args: argparse.Namespace) -> int:
     if chain:
         show(chain, 2)
     else:
-        print("    Owner: Not publicly disclosed (no owner recorded on Wikidata)")
+        print("    No owner listed on Wikidata")
     return 0
 
 
@@ -322,7 +322,7 @@ def cmd_funding_show(args: argparse.Namespace) -> int:
     finally:
         conn.close()
     if not rows:
-        print("Funding: Not publicly disclosed")
+        print("Funding: no record found in the sources checked")
     for r in rows:
         amount = f"{r['amount']:,.0f} {r['currency']}" if r["amount"] is not None else "(link)"
         print(
