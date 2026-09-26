@@ -39,14 +39,15 @@
 <ul class="chain">
   {% for step in steps %}
   <li>
-    <span class="rel">{{ step.edge.label }}</span>
+    <span class="rel">{{ step.label }}</span>
     <a class="owner" href="/owner/{{ step.parent.qid }}">{{ step.parent.name }}</a>
-    {%- if step.edge.share %} <span class="share">({{ step.edge.share | pct }})</span>{% endif %}
+    {%- if step.share %} <span class="share">({{ step.share | pct }})</span>{% endif %}
     {%- if step.parent.type_label %} <span class="kind" title="{{ step.parent.kinds | join(', ') }}">{{ step.parent.type_label }}{% if step.parent.country %} · {{ step.parent.country }}{% endif %}</span>{% endif %}
-    {%- if step.edge.start_date %} <span class="kind">since {{ step.edge.start_date }}</span>{% endif %}
-    {%- if step.edge.source == "correction" %} <span class="kind" title="Missing from Wikidata; added from the cited source">correction</span>{% endif %}
-    {{ source_link(step.edge.source_url, step.edge.retrieved_at, ("Wikidata " ~ step.edge.source_url.rsplit('/', 1)[-1]) if step.edge.source == "wikidata" else ("Correction, from " ~ step.edge.source_url), "checked" if step.edge.source == "correction" else "retrieved") }}
+    {%- if step.dates %} <span class="kind"{% if step.dates | length > 1 %} title="Dates stated: {{ step.dates | join(', ') }}"{% endif %}>since {{ step.dates[0] }}</span>{% endif %}
+    {%- if step.corrected %} <span class="kind" title="Missing from Wikidata; added from the cited source">correction</span>{% endif %}
+    {% for src in step.sources %}{{ source_link(src.url, src.retrieved_at, src.what, src.verb) }} {% endfor %}
     {% if step.cycle %}<span class="kind">(listed above; the records loop back)</span>
+    {% elif step.listed %}<span class="kind">(its owners are listed above)</span>
     {% elif step.above %}{{ chain(step.above) }}{% endif %}
   </li>
   {% endfor %}

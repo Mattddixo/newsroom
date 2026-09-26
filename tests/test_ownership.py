@@ -718,3 +718,50 @@ def test_ownership_changes_are_logged_and_reported(
     assert "->  Owned by Someone Else" in out
     assert "no longer needed (Wikidata now lists it; remove from ownership.yaml)" in out
     assert "source checked 2020-01-01, re-check it: b.ca add owner: Q2" in out
+
+
+def test_chain_names_each_owner_once() -> None:
+    """The CTV News shape: several statements to one owner, and shared owners above."""
+    from newsroom.ownership_view import Edge, Node
+
+    def node(i: int, name: str) -> Node:
+        return Node(i, f"Q{i}", name, "", "company", "Canada", None, "", "2026-09-26")
+
+    def edge(child: int, parent: int, rel: str = "owned_by", share=None, start=None) -> Edge:
+        url = f"https://www.wikidata.org/wiki/Q{child}#{'P127' if rel == 'owned_by' else 'P749'}"
+        return Edge(child, parent, rel, share, start, "wikidata", url, "2026-09-26")
+
+    names = ["", "CTV News", "Bell Media", "Bell Canada", "BCE", "CTV Network", "Bell MTS"]
+    nodes = {i: node(i, n) for i, n in enumerate(names) if n}
+    edges = [
+        edge(1, 2),
+        edge(1, 3),
+        edge(1, 5),
+        edge(2, 3),
+        edge(2, 6, share=0.059),
+        edge(3, 4),
+        edge(3, 4, start="2017-03-17"),
+        edge(3, 4, "parent_org", start="1983"),
+        edge(5, 2),
+        edge(6, 4),
+    ]
+    graph = Graph(nodes, edges)
+    chain = graph.chain(1)
+
+    def flat(steps, depth=0):
+        for s in steps:
+            yield depth, s.parent.name, s.label, s.listed
+            yield from flat(s.above, depth + 1)
+
+    assert list(flat(chain)) == [
+        (0, "Bell Canada", "Owned by", False),
+        (1, "BCE", "Owned by · Parent organization", False),
+        (0, "Bell Media", "Owned by", False),
+        (1, "Bell Canada", "Owned by", True),  # its owners are already shown above
+        (1, "Bell MTS", "Shareholder", False),  # a minority stake: its owners aren't followed
+        (0, "CTV Network", "Owned by", False),
+        (1, "Bell Media", "Owned by", True),
+    ]
+    bce = chain[0].above[0]
+    assert bce.dates == ["1983", "2017-03-17"]
+    assert [s.url for s in bce.sources] == ["https://www.wikidata.org/wiki/Q3"]

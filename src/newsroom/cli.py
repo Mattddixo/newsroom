@@ -307,11 +307,12 @@ def cmd_ownership_show(args: argparse.Namespace) -> int:
 
     def show(steps: list, depth: int) -> None:
         for step in steps:
-            share = f" ({step.edge.share:.0%})" if step.edge.share else ""
-            note = "  [cycle]" if step.cycle else ""
+            share = f" ({step.share:.0%})" if step.share else ""
+            note = "  [cycle]" if step.cycle else "  [listed above]" if step.listed else ""
+            src = ", ".join(s.url for s in step.sources)
             print(
-                f"{'  ' * depth}- {step.edge.label}: {step.parent.name} [{step.parent.qid}]"
-                f"{share}{note}  source: {step.edge.source_url} ({step.edge.retrieved_at[:10]})"
+                f"{'  ' * depth}- {step.label}: {step.parent.name} [{step.parent.qid}]"
+                f"{share}{note}  source: {src} ({step.edge.retrieved_at[:10]})"
             )
             show(step.above, depth + 1)
 

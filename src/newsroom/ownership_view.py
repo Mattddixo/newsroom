@@ -89,14 +89,70 @@ class Edge:
         return RELATION_WHOSE[self.relation]
 
 
+@dataclass(frozen=True)
+class Source:
+    url: str
+    retrieved_at: str
+    what: str  # where it comes from, shown on hover
+    verb: str  # "retrieved" (Wikidata) or "checked" (a cited correction)
+
+
 @dataclass
 class Step:
-    """One edge in an ownership chain, with the parent's own chain nested below."""
+    """One owner in an ownership chain: every statement linking the child to it (Wikidata
+    often has "owned by" and "parent organization" for the same pair), with the owner's own
+    chain nested below. An owner's chain is spelled out once per chain; later mentions are
+    marked `listed` instead of repeating it."""
 
-    edge: Edge
+    edges: list[Edge]
     parent: Node
     above: list[Step] = field(default_factory=list)
-    cycle: bool = False
+    cycle: bool = False  # the owner is below itself: the records loop back
+    listed: bool = False  # the owner's chain is already shown earlier in this chain
+
+    @property
+    def edge(self) -> Edge:
+        return self.edges[0]  # owned_by first (see Graph.__init__)
+
+    @property
+    def minority(self) -> bool:
+        return all(e.minority for e in self.edges)
+
+    @property
+    def label(self) -> str:
+        labels = [e.label for e in self.edges if not (e.minority and not self.minority)]
+        return " · ".join(dict.fromkeys(labels))
+
+    @property
+    def share(self) -> float | None:
+        shares = [e.share for e in self.edges if e.share is not None]
+        return max(shares) if shares else None
+
+    @property
+    def dates(self) -> list[str]:
+        return sorted({e.start_date for e in self.edges if e.start_date})
+
+    @property
+    def corrected(self) -> bool:
+        return any(e.source == "correction" for e in self.edges)
+
+    @property
+    def sources(self) -> list[Source]:
+        out: dict[str, Source] = {}
+        wikidata = [e for e in self.edges if e.source == "wikidata"]
+        if wikidata:
+            # One link: to the statement, or to the item's page when it makes several.
+            url = wikidata[0].source_url
+            url = url if len(wikidata) == 1 else url.split("#")[0]
+            what = "Wikidata " + url.rsplit("/", 1)[-1]
+            out[url] = Source(url, wikidata[0].retrieved_at, what, "retrieved")
+        for e in self.edges:
+            if e.source != "wikidata" and e.source_url not in out:
+                what = (
+                    f"Correction, from {e.source_url}" if e.source == "correction" else e.source_url
+                )
+                out[e.source_url] = Source(e.source_url, e.retrieved_at, what, "checked")
+        return list(out.values())
 
 
 @dataclass
@@ -162,16 +218,29 @@ class Graph:
     def by_qid(self, qid: str) -> Node | None:
         return next((n for n in self.nodes.values() if n.qid == qid), None)
 
-    def chain(self, entity_id: int, _seen: frozenset[int] = frozenset()) -> list[Step]:
-        seen = _seen | {entity_id}
-        steps = []
-        for e in self.up.get(entity_id, []):
-            parent = self.nodes[e.parent]
-            if e.parent in seen:
-                steps.append(Step(e, parent, cycle=True))
-            else:
-                steps.append(Step(e, parent, self.chain(e.parent, seen)))
-        return steps
+    def chain(self, entity_id: int) -> list[Step]:
+        """Everything above `entity_id`, one Step per owner. Each owner's own chain is
+        spelled out the first time it appears; minority shareholders' chains are not."""
+        expanded: set[int] = {entity_id}
+
+        def walk(child: int, path: frozenset[int]) -> list[Step]:
+            by_parent: dict[int, list[Edge]] = {}
+            for e in self.up.get(child, []):
+                by_parent.setdefault(e.parent, []).append(e)
+            steps = []
+            for parent_id, edges in by_parent.items():
+                step = Step(edges, self.nodes[parent_id])
+                if parent_id in path:
+                    step.cycle = True
+                elif parent_id in expanded:
+                    step.listed = bool(self.up.get(parent_id))
+                elif not step.minority:
+                    expanded.add(parent_id)
+                    step.above = walk(parent_id, path | {parent_id})
+                steps.append(step)
+            return steps
+
+        return walk(entity_id, frozenset({entity_id}))
 
     def ultimate(self, entity_id: int) -> list[Node]:
         """Top-most entities reachable upward (those with no recorded parent)."""
