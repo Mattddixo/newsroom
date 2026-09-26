@@ -398,6 +398,13 @@ button {
   }
 }
 
+/* In search results: who and where the story is about (why it matched). */
+.about {
+  margin: 0.25rem 0 0;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
 /* Row 3: topic tags, small and quiet. */
 .tags {
   display: flex;

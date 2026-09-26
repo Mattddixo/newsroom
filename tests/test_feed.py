@@ -509,3 +509,46 @@ def test_balanced_feed_interleaves_but_everything_stays_in_order(tmp_path: Path)
 
     assert titles_for("balanced") == ["c1", "n1", "c2", "n2", "c3"]
     assert titles_for("all") == ["c1", "c2", "c3", "n1", "n2"]  # strict time order
+
+
+def test_country_filter_and_search_by_who_and_where(tmp_path: Path) -> None:
+    s = Settings(data_dir=tmp_path, rate_limit="1000/minute", search_rate_limit="1000/minute")
+    conn = make_db(s.db_path, NOW)
+
+    def about(url: str, title: str, mins: int, places=(), people=()):  # type: ignore[no-untyped-def]
+        return replace(rec(url, title, NOW - timedelta(minutes=mins)), places=places, people=people)
+
+    records = [
+        about("https://cbc.ca/1", "Budget talks resume", 1, (("CA", 4),), (("Mark Carney", 3),)),
+        about("https://cbc.ca/2", "Berlin coalition wobbles", 2, (("GM", 5),)),
+        about("https://cbc.ca/3", "Carney visits the plant", 3, (("US", 2),)),
+        rec("https://cbc.ca/4", "Local weather", NOW - timedelta(minutes=4)),  # nothing known
+    ]
+    run_ingest(conn, FakeSource([QueryResult("q", records)]), Tagger(TAGS), now=NOW)
+    client = TestClient(create_app(s))
+
+    def titles_for(**params: str) -> list[str]:
+        return titles(client.get("/", params=params).text)
+
+    assert titles_for(place="CA") == ["Budget talks resume"]
+    assert titles_for(place="EU") == ["Berlin coalition wobbles"]  # Germany is in the EU
+    assert titles_for(place="GM") == ["Berlin coalition wobbles"]
+    assert titles_for(place="XX") == titles_for()  # unknown code: ignored
+    # search covers who and where the story is about, not just the headline
+    assert titles_for(q="germany") == ["Berlin coalition wobbles"]
+    assert titles_for(q="european union") == ["Berlin coalition wobbles"]
+    hits = titles_for(q="carney", sort="relevance")
+    assert hits == ["Carney visits the plant", "Budget talks resume"]  # headline match first
+    html = client.get("/", params={"q": "carney"}).text
+    assert "About: Mark Carney · Canada" in html  # why a result matched
+    assert "About:" not in client.get("/").text  # only shown in search results
+    # the Country menu: Canada, US and the EU first, names not codes
+    menu = re.search(r'<select name="place".*?</select>', client.get("/").text, re.S)
+    assert menu is not None
+    options = re.findall(r'<option value="(\w*)"[^>]*>([^<]+)</option>', menu.group(0))
+    assert options[:4] == [
+        ("", "Anywhere"),
+        ("CA", "Canada"),
+        ("US", "United States"),
+        ("EU", "European Union"),
+    ]

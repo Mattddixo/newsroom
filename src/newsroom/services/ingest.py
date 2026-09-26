@@ -21,8 +21,9 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from newsroom.config import OutletConfig
+from newsroom.places import EU, place_name
 from newsroom.services.tagging import Tagger, encode_themes, tag_article, tag_ids
-from newsroom.sources.base import ArticleSource, QueryResult
+from newsroom.sources.base import ArticleRecord, ArticleSource, QueryResult
 from newsroom.urls import canonical_key
 
 log = logging.getLogger(__name__)
@@ -353,12 +354,13 @@ def _store(
                 continue
             stated = ts(rec.outlet_published_at) if rec.outlet_published_at else None
             themes = encode_themes(dict(rec.themes), tagger.themes)
+            about = about_text(rec)
             key = canonical_key(rec.url)
             cur = conn.execute(
                 "INSERT INTO articles (url, url_key, title, outlet_id, published_at,"
                 " language, image_url, source, source_url, retrieved_at,"
-                " outlet_published_at, pubdate_method, pubdate_checked_at, gdelt_themes)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                " outlet_published_at, pubdate_method, pubdate_checked_at, gdelt_themes, about)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
                 " ON CONFLICT (url_key) DO NOTHING",
                 (
                     rec.url,
@@ -375,12 +377,22 @@ def _store(
                     rec.pubdate_method if stated else None,
                     retrieved if stated else None,  # dated by its source: nothing to check
                     themes,
+                    about,
                 ),
             )
             if cur.rowcount == 1:
                 summary.inserted += 1
                 tag_article(conn, tagger, cur.lastrowid or 0, themes, "", ids)
-            elif themes:
+                _store_places(conn, cur.lastrowid or 0, rec)
+            elif about:
+                # Already stored (e.g. from an outlet's feed): add what GDELT read, once.
+                row = conn.execute(
+                    "UPDATE articles SET about = ? WHERE url_key = ? AND about = '' RETURNING id",
+                    (about, key),
+                ).fetchone()
+                if row:
+                    _store_places(conn, row["id"], rec)
+            if cur.rowcount != 1 and themes:
                 # Already stored (e.g. from an outlet's feed) without GDELT's themes.
                 row = conn.execute(
                     "UPDATE articles SET gdelt_themes = ? WHERE url_key = ? AND gdelt_themes = ''"
@@ -394,6 +406,24 @@ def _store(
     except Exception:
         conn.execute("ROLLBACK")
         raise
+
+
+def about_text(rec: ArticleRecord) -> str:
+    """What GDELT says the story is about, as searchable text: the people it's about,
+    then the countries ("European Union" too for a member state). Empty if unknown."""
+    names = [name for name, _ in rec.people]
+    for code, _ in rec.places:
+        names.append(place_name(code))
+    if any(code in EU for code, _ in rec.places):
+        names.append("European Union")
+    return " · ".join(names)
+
+
+def _store_places(conn: sqlite3.Connection, article_id: int, rec: ArticleRecord) -> None:
+    conn.executemany(
+        "INSERT OR IGNORE INTO article_places (article_id, country, mentions) VALUES (?, ?, ?)",
+        [(article_id, code, n) for code, n in rec.places],
+    )
 
 
 def _progress(conn: sqlite3.Connection, s: RunSummary) -> None:

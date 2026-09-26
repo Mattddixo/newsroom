@@ -16,7 +16,7 @@
   {% if options %}
   {#- Collapsed by default. Open while any filter is set, so what narrows the list is
       always visible (and it stays open while you adjust it). #}
-  {%- set n_filters = [filters.tag, filters.outlet, filters.country, filters.owner, filters.date_from, filters.date_to] | select | list | length %}
+  {%- set n_filters = [filters.tag, filters.outlet, filters.place, filters.country, filters.owner, filters.date_from, filters.date_to] | select | list | length %}
   <details class="more-filters"{% if n_filters %} open{% endif %}>
   <summary>Filters{% if n_filters %} <span class="badge">{{ n_filters }} active</span>{% endif %}</summary>
   <div class="filters-row">
@@ -36,14 +36,24 @@
         {% endfor %}
       </select>
     </label>
-    <label>Country
+    <label title="Stories about this country, by GDELT's reading of the article">Country
+      <select name="place" {{ live | safe }}>
+        <option value="">Anywhere</option>
+        {% for code, name in options.places %}
+        <option value="{{ code }}"{% if code == filters.place %} selected{% endif %}>{{ name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    {% if filters.country %}{# from an outlet page's link: outlets based in a country #}
+    <label>Outlets from
       <select name="country" {{ live | safe }}>
-        <option value="">All</option>
+        <option value="">Anywhere</option>
         {% for c in options.countries %}
         <option value="{{ c.country }}"{% if c.country == filters.country %} selected{% endif %}>{{ c.country }}</option>
         {% endfor %}
       </select>
     </label>
+    {% endif %}
     {% if owner_options %}
     <label>Owner
       <select name="owner" {{ live | safe }}>

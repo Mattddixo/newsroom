@@ -16,6 +16,9 @@
     </details>
     {% endif %}
   </div>
+  {% if filters.q and a.about %}
+  <p class="about" title="Who and where the story is about, by GDELT's reading of the article">About: {{ a.about }}</p>
+  {% endif %}
   {% if a.tags %}
   <ul class="tags" aria-label="Tags">
     {% for slug, label, why in a.tags %}

@@ -122,6 +122,50 @@ def theme_counts(v2themes: str) -> tuple[tuple[str, int], ...]:
     return tuple(sorted(counts.items()))
 
 
+# A country or person counts as what a story is about when it's mentioned at least
+# twice (one passing mention doesn't make a story about Paris) and, for countries, makes
+# up at least a quarter of the places mentioned. At most 3 countries / 5 people kept.
+MIN_MENTIONS = 2
+MIN_PLACE_SHARE = 0.25
+MAX_PLACES = 3
+MAX_PEOPLE = 5
+_COUNTRY = re.compile(r"^[A-Z]{2}$")
+_NAME = re.compile(r"^[^\W\d_][\w .'\-]{1,80}$")
+
+
+def main_places(v2locations: str) -> tuple[tuple[str, int], ...]:
+    """GKG V2Locations ("type#name#country#adm1#adm2#lat#long#feature#offset;...": one
+    entry per mention) -> the countries the story is mainly about, most mentioned first."""
+    counts: dict[str, int] = {}
+    for entry in v2locations.split(";"):
+        fields = entry.split("#")
+        if len(fields) > 2 and _COUNTRY.match(fields[2]):
+            counts[fields[2]] = counts.get(fields[2], 0) + 1
+    total = sum(counts.values())
+    kept = [
+        (c, n)
+        for c, n in counts.items()
+        if n >= MIN_MENTIONS and n >= MIN_PLACE_SHARE * total
+    ]
+    return tuple(sorted(kept, key=lambda cn: (-cn[1], cn[0]))[:MAX_PLACES])
+
+
+def main_people(v2persons: str) -> tuple[tuple[str, int], ...]:
+    """GKG V2Persons ("Name,offset;...": one entry per mention) -> the people mentioned
+    at least MIN_MENTIONS times, most mentioned first."""
+    counts: dict[str, int] = {}
+    names: dict[str, str] = {}
+    for entry in v2persons.split(";"):
+        name = " ".join(entry.rpartition(",")[0].split())
+        if not _NAME.match(name) or " " not in name:  # a full name, not a lone word
+            continue
+        key = name.casefold()
+        counts[key] = counts.get(key, 0) + 1
+        names.setdefault(key, name.title() if name.islower() else name)
+    kept = [(names[k], n) for k, n in counts.items() if n >= MIN_MENTIONS]
+    return tuple(sorted(kept, key=lambda nn: (-nn[1], nn[0]))[:MAX_PEOPLE])
+
+
 def parse_lines(
     lines: Iterator[str], match: DomainMatcher, translated: bool
 ) -> tuple[list[ArticleRecord], int]:
@@ -164,6 +208,8 @@ def parse_lines(
                 language=language,
                 image_url=image if image and is_http_url(image) else None,
                 themes=theme_counts(cols[8]),
+                places=main_places(cols[10]),
+                people=main_people(cols[12]),
             )
         )
     return records, count

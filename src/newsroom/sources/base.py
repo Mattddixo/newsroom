@@ -21,6 +21,10 @@ class ArticleRecord:
     pubdate_method: str | None = None
     # GDELT's theme coding of the article text: (theme, mentions). Empty for other sources.
     themes: tuple[tuple[str, int], ...] = ()
+    # Countries the story is about (GDELT country code, mentions) and people it's about
+    # (name, mentions), from GDELT's reading of the text. Empty for other sources.
+    places: tuple[tuple[str, int], ...] = ()
+    people: tuple[tuple[str, int], ...] = ()
 
 
 @dataclass

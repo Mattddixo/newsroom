@@ -292,3 +292,25 @@ def test_gdelt_themes_are_counted_per_mention() -> None:
     line = gkg_line("https://www.cbc.ca/news/vote", v2themes=v2)
     [record] = parse_lines(iter([line]), DomainMatcher(DOMAINS), translated=False)[0]
     assert record.themes == (("ELECTION", 3), ("ENV_CLIMATECHANGE", 1))
+
+
+def test_main_places_and_people() -> None:
+    from newsroom.sources.gdelt_files import main_people, main_places
+
+    # one entry per mention: type#name#country#adm1#adm2#lat#long#feature#offset
+    loc = ";".join(
+        [
+            "4#Ottawa, Ontario, Canada#CA#CA08##45.4#-75.7#-570760#100",
+            "1#Canada#CA#CA##60#-95#CA#300",
+            "1#Canada#CA#CA##60#-95#CA#900",
+            "2#Washington, United States#US#USDC##38.9#-77#531871#400",
+            "2#Washington, United States#US#USDC##38.9#-77#531871#1200",
+            "4#Paris, France#FR#FR11##48.8#2.3#-1456928#700",  # one passing mention
+        ]
+    )
+    assert main_places(loc) == (("CA", 3), ("US", 2))
+    assert main_places("") == ()
+    people = "Mark Carney,50;Mark Carney,900;Donald Trump,200;Donald Trump,300;Trump,5;Jane Doe,70"
+    # full names mentioned twice or more; a lone word or a single mention doesn't count
+    assert main_people(people) == (("Donald Trump", 2), ("Mark Carney", 2))
+    assert main_people("mark carney,1;mark carney,9") == (("Mark Carney", 2),)

@@ -10,6 +10,7 @@ from itertools import groupby
 from zoneinfo import ZoneInfo
 
 from newsroom.ownership_view import Graph, Node
+from newsroom.places import COUNTRIES, GROUPS, place_codes, place_name
 from newsroom.services.ingest import parse_ts, ts
 from newsroom.sources.wikidata import QID_RE
 
@@ -41,7 +42,8 @@ class FeedFilters:
     q: str = ""
     tag: str = ""
     outlet: str = ""
-    country: str = ""
+    country: str = ""  # the outlet's country (from outlets.yaml)
+    place: str = ""  # a country (or group, e.g. EU) the story is about, per GDELT
     owner: str = ""
     date_from: date | None = None
     date_to: date | None = None
@@ -59,6 +61,7 @@ class FeedFilters:
         tag = params.get("tag", "").strip().lower()
         outlet = params.get("outlet", "").strip().lower()
         country = params.get("country", "").strip().upper()
+        place = params.get("place", "").strip().upper()
         owner = params.get("owner", "").strip().upper()
         sort = params.get("sort", "newest")
         if sort not in SORTS or (sort == "relevance" and not q):
@@ -74,6 +77,7 @@ class FeedFilters:
             tag=tag if _SLUG.match(tag) else "",
             outlet=outlet if _DOMAIN.match(outlet) else "",
             country=country if re.fullmatch(r"[A-Z]{2}", country) else "",
+            place=place if place in COUNTRIES or place in GROUPS else "",
             owner=owner if QID_RE.match(owner) else "",
             date_from=date_from,
             date_to=date_to,
@@ -87,7 +91,8 @@ class FeedFilters:
         """Current state as query params for links. Defaults are left out (clean URLs);
         pass page=..., sort=... etc. to change one thing."""
         values = {
-            key: "" for key in ("q", "tag", "outlet", "country", "owner", "from", "to")
+            key: ""
+            for key in ("q", "tag", "outlet", "place", "country", "owner", "from", "to")
         }  # fixed order, so URLs read the same however they were built
         values.update(self.filter_params())
         values.update(
@@ -103,6 +108,7 @@ class FeedFilters:
             "q": self.q,
             "tag": self.tag,
             "outlet": self.outlet,
+            "place": self.place,
             "country": self.country,
             "owner": self.owner,
             "from": self.date_from.isoformat() if self.date_from else "",
@@ -160,6 +166,7 @@ class Article:
     language: str | None = None
     date_kind: str = "seen"  # "published" (from the article page) | "seen" (GDELT)
     tags: list[tuple[str, str, str]] = field(default_factory=list)  # (slug, label, evidence)
+    about: str = ""  # people and countries the story is about, per GDELT
 
 
 @dataclass
@@ -258,6 +265,14 @@ def _conditions(
     if f.country:
         where.append("o.country = ?")
         args.append(f.country)
+    if f.place:
+        codes = sorted(place_codes(f.place))
+        marks = ",".join("?" * len(codes))
+        where.append(
+            f"EXISTS (SELECT 1 FROM article_places p WHERE p.article_id = a.id"  # noqa: S608
+            f" AND p.country IN ({marks}))"
+        )
+        args.extend(codes)
     if f.owner:
         where.append(
             "o.entity_id IN (WITH RECURSIVE below(id) AS ("
@@ -330,7 +345,7 @@ ORDERS = {
 SELECT_COLUMNS = (
     f"a.id, a.url, a.title, {SHOWN_AT} AS shown_at, a.outlet_published_at,"
     " o.display_name, o.domain,"
-    " o.entity_id, o.logo_path, a.language"
+    " o.entity_id, o.logo_path, a.language, a.about"
 )
 
 
@@ -388,6 +403,7 @@ def feed(
             outlet_entity_id=r["entity_id"],
             logo_path=r["logo_path"],
             language=r["language"],
+            about=r["about"],
         )
         for r in rows
     ]
@@ -488,7 +504,31 @@ def filter_options(conn: sqlite3.Connection) -> dict[str, list[sqlite3.Row]]:
         "countries": conn.execute(
             "SELECT DISTINCT country FROM outlets WHERE active = 1 ORDER BY country"
         ).fetchall(),
+        "places": place_options(conn),
     }
+
+
+PLACE_MIN_STORIES = 3  # a country is offered once this many recent stories are about it
+PLACE_WINDOW_DAYS = 30
+PINNED_PLACES = ("CA", "US", "EU")
+
+
+def place_options(conn: sqlite3.Connection, now: datetime | None = None) -> list[tuple[str, str]]:
+    """(code, name) for the Country filter: Canada, the United States and the EU first,
+    then every country at least PLACE_MIN_STORIES recent stories are about, by name."""
+    since = ts((now or datetime.now(UTC)) - timedelta(days=PLACE_WINDOW_DAYS))
+    rows = conn.execute(
+        "SELECT p.country, count(*) AS n FROM article_places p"
+        " JOIN articles a ON a.id = p.article_id WHERE a.published_at >= ?"
+        " GROUP BY p.country HAVING n >= ?",
+        (since, PLACE_MIN_STORIES),
+    ).fetchall()
+    seen = {r["country"] for r in rows if r["country"] in COUNTRIES}
+    pinned = [(c, place_name(c)) for c in PINNED_PLACES]
+    rest = sorted(
+        ((c, place_name(c)) for c in seen if c not in PINNED_PLACES), key=lambda cn: cn[1]
+    )
+    return pinned + rest
 
 
 def last_ingest(conn: sqlite3.Connection) -> datetime | None:
