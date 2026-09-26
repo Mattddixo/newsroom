@@ -76,3 +76,20 @@ corrections:
     source: https://www.editorandpublisher.com/stories/gannett-negotiates-early-exit-from-management-deal-with-fortress-investment-group,182801
     checked: 2026-09-26
     note: Fortress managed Gannett under an agreement that ended on 2020-12-31; it didn't own it.
+
+  - outlet: macleans.ca
+    remove_owner: Rogers Communications
+    add_owner: Q7589303  # St. Joseph Communications
+    source: https://www.cbc.ca/news/business/rogers-media-magazines-1.5064054
+    checked: 2026-09-26
+    note: Rogers sold Maclean's and its other magazines to St. Joseph Communications in 2019.
+
+  # Newsweek: owned 50/50 by Dev Pragad and Johnathan Davis since 2018.
+  - outlet: newsweek.com
+    add_owner: Q123428024  # Dev Pragad
+    source: https://en.wikipedia.org/wiki/Dev_Pragad
+    checked: 2026-09-26
+  - outlet: newsweek.com
+    add_owner: Q114885408  # Johnathan Davis
+    source: https://en.wikipedia.org/wiki/Johnathan_Davis_(businessman)
+    checked: 2026-09-26

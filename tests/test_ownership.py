@@ -630,3 +630,17 @@ def test_shareholders_and_public_companies_in_the_summary() -> None:
     assert [n.name for _, n in s.above] == ["Disney"] and s.more
     stake = graph.up[3][0]
     assert stake.minority and stake.label == "Shareholder"
+
+
+def test_summary_names_an_owner_once() -> None:
+    from newsroom.ownership_view import Edge, Graph, Node, summary_text
+
+    nodes = {
+        1: Node(1, "Q1", "CNN", "", "", "", None, "u", "t"),
+        2: Node(2, "Q2", "Warner Bros. Discovery", "", "", "", None, "u", "t"),
+    }
+    edges = [
+        Edge(1, 2, "owned_by", None, None, "wikidata", "u", "t"),
+        Edge(1, 2, "parent_org", None, None, "wikidata", "u", "t"),
+    ]
+    assert summary_text(Graph(nodes, edges).summary(1)) == "Owned by Warner Bros. Discovery"

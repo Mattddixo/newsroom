@@ -218,7 +218,10 @@ class Graph:
     def summary(self, entity_id: int | None) -> Summary:
         if entity_id is None or entity_id not in self.nodes:
             return Summary(None, [])
-        direct = [(e, self.nodes[e.parent]) for e in self.up.get(entity_id, [])]
+        direct: list[tuple[Edge, Node]] = []
+        for e in self.up.get(entity_id, []):  # owned_by first (see __init__)
+            if all(n.id != e.parent for _, n in direct):  # "owned by X; parent: X" says X twice
+                direct.append((e, self.nodes[e.parent]))
         above: list[tuple[Edge, Node]] = []
         more = False
         if direct:
