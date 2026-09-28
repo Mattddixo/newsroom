@@ -75,6 +75,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     templates.env.filters["money"] = _money
     templates.env.filters["highlight"] = _highlight
     templates.env.filters["matched"] = _matched
+    templates.env.filters["listing"] = _listing
     templates.env.globals["page_url"] = lambda f, n: _feed_url(f.params(page=n))
     templates.env.globals["feed_url"] = _feed_url
 
@@ -144,13 +145,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if conn is not None:
                 try:
                     drawn = datetime.now(UTC).replace(microsecond=0)
+                    graph = Graph.load(conn)
+                    context["graph"] = graph
                     context["page"] = queries.feed(
-                        conn, filters, tz, settings.feed_outlet_cap, visibility, drawn
+                        conn, filters, tz, settings.feed_outlet_cap, visibility, drawn, graph
                     )
                     context["since"] = drawn.strftime(SINCE_FORMAT)
                     context["options"] = queries.filter_options(conn)
-                    graph = Graph.load(conn)
-                    context["graph"] = graph
                     context["owner_options"] = queries.owner_options(graph, queries.outlets(conn))
                     last = queries.last_ingest(conn)
                     context["last_ingest"] = last.astimezone(tz) if last else None
@@ -197,6 +198,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     )
         return templates.TemplateResponse(
             request, "_new_articles.html", {"count": count, "filters": filters}
+        )
+
+    @app.get("/fragments/by-owner", response_class=HTMLResponse)
+    def by_owner_fragment(request: Request) -> Response:
+        """Coverage by owner for the feed's current filters (loaded when opened)."""
+        filters = queries.FeedFilters.parse(dict(request.query_params))
+        shares: list[queries.OwnerShare] = []
+        with database() as conn:
+            if conn is not None:
+                counts = queries.outlet_counts(
+                    conn, filters, tz, settings.feed_outlet_cap, visibility
+                )
+                shares = queries.by_owner(conn, Graph.load(conn), counts) if counts else []
+        return templates.TemplateResponse(
+            request,
+            "_by_owner.html",
+            {
+                "shares": shares,
+                "owner_link": lambda qid: _feed_url(filters.params(owner=qid, page=1)),
+            },
         )
 
     @app.get("/outlets", response_class=HTMLResponse)
@@ -258,6 +279,35 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             }
         return templates.TemplateResponse(request, "_ownership_panel.html", context)
 
+    @app.get("/story/{story_id}", response_class=HTMLResponse)
+    def story_page(request: Request, story_id: int) -> Response:
+        with database() as conn:
+            if conn is None:
+                raise StarletteHTTPException(404)
+            graph = Graph.load(conn)
+            articles = queries.story(conn, story_id, tz, graph)
+            if not articles:
+                raise StarletteHTTPException(404)
+            counts: dict[int, int] = {}
+            for r in conn.execute(
+                "SELECT a.outlet_id, count(*) FROM article_stories s"
+                " JOIN articles a ON a.id = s.article_id WHERE s.story_id = ?"
+                " GROUP BY a.outlet_id",
+                (story_id,),
+            ):
+                counts[r[0]] = r[1]
+            shares = queries.by_owner(conn, graph, counts)
+        context = {
+            "articles": articles,
+            "outlets": len(counts),
+            "shares": shares,
+            "graph": graph,
+            "filters": queries.FeedFilters(),
+            "in_story": True,
+            "owner_link": lambda qid: _feed_url({"owner": qid}),
+        }
+        return templates.TemplateResponse(request, "story.html", context)
+
     @app.get("/owners", response_class=HTMLResponse)
     def owners_page(request: Request) -> Response:
         with database() as conn:
@@ -287,6 +337,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "node": node,
                 "chain": graph.chain(node.id),
                 "owned": owned,
+                "topics": queries.topics(conn, [o.outlet["id"] for o in owned], datetime.now(UTC)),
                 "graph": graph,
                 "funding_rows": funding_view.records(conn, graph.lineage(node.id)),
             }
@@ -370,6 +421,14 @@ def _matched(about: str, q: str, title: str) -> list[Markup]:
     if not terms or not about or any(terms.matches(w) for w in re.findall(r"\w+", title)):
         return []
     return [terms.highlight(p) for p in terms.matched_parts(about)]
+
+
+def _listing(names: list[str], limit: int = 3) -> str:
+    """ "A", "A and B", "A, B and C", "A, B, C and 2 more"."""
+    shown, rest = names[:limit], len(names) - limit
+    if rest > 0:
+        return f"{', '.join(shown)} and {rest} more"
+    return " and ".join([", ".join(shown[:-1]), shown[-1]]) if len(shown) > 1 else "".join(shown)
 
 
 def _article_date(when: datetime, now: datetime) -> str:

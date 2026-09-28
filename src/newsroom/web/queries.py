@@ -27,6 +27,7 @@ SORTS = {
     "relevance": "Best match",  # only with a search
 }
 MIXES = {"balanced": "Balanced", "all": "Everything"}
+MENTIONS = ("owner",)
 DEFAULT_OUTLET_CAP = 3  # balanced mix: articles per outlet per hour
 MAX_QUERY_LENGTH = 200
 _TOKEN = re.compile(r"\w+", re.UNICODE)
@@ -48,6 +49,7 @@ class FeedFilters:
     country: str = ""  # the outlet's country (from outlets.yaml)
     place: str = ""  # a country (or group, e.g. EU) the story is about, per GDELT
     owner: str = ""
+    mentions: str = ""  # "owner": stories naming an owner of their own outlet
     date_from: date | None = None
     date_to: date | None = None
     sort: str = "newest"
@@ -66,6 +68,7 @@ class FeedFilters:
         country = params.get("country", "").strip().upper()
         place = params.get("place", "").strip().upper()
         owner = params.get("owner", "").strip().upper()
+        mentions = params.get("mentions", "").strip().lower()
         sort = params.get("sort", "newest")
         if sort not in SORTS or (sort == "relevance" and not q):
             sort = "newest"
@@ -82,6 +85,7 @@ class FeedFilters:
             country=country if re.fullmatch(r"[A-Z]{2}", country) else "",
             place=place if place in COUNTRIES or place in GROUPS else "",
             owner=owner if QID_RE.match(owner) else "",
+            mentions=mentions if mentions in MENTIONS else "",
             date_from=date_from,
             date_to=date_to,
             sort=sort,
@@ -94,7 +98,8 @@ class FeedFilters:
         """Current state as query params for links. Defaults are left out (clean URLs);
         pass page=..., sort=... etc. to change one thing."""
         values = {
-            key: "" for key in ("q", "tag", "outlet", "place", "country", "owner", "from", "to")
+            key: ""
+            for key in ("q", "tag", "outlet", "place", "country", "owner", "mentions", "from", "to")
         }  # fixed order, so URLs read the same however they were built
         values.update(self.filter_params())
         values.update(
@@ -113,6 +118,7 @@ class FeedFilters:
             "place": self.place,
             "country": self.country,
             "owner": self.owner,
+            "mentions": self.mentions,
             "from": self.date_from.isoformat() if self.date_from else "",
             "to": self.date_to.isoformat() if self.date_to else "",
         }
@@ -217,6 +223,13 @@ class Article:
     date_kind: str = "seen"  # "published" (from the article page) | "seen" (GDELT)
     tags: list[tuple[str, str, str]] = field(default_factory=list)  # (slug, label, evidence)
     about: str = ""  # people and countries the story is about, per GDELT
+    # Items above the outlet in its ownership records that the article names, nearest
+    # first, each with the chain of records down to the outlet.
+    owner_mentions: list[list[Node]] = field(default_factory=list)
+    story_id: int | None = None
+    # Other outlets covering the same story (name, domain), in the order they published.
+    also: list[tuple[str, str]] = field(default_factory=list)
+    shared: str = ""  # on a story page: what links it to the article it was grouped with
 
 
 @dataclass
@@ -331,6 +344,17 @@ def _conditions(
             " JOIN below ON e.parent_entity_id = below.id) SELECT id FROM below)"
         )
         args.append(f.owner)
+    if f.mentions == "owner":
+        # Names an item above the outlet in its ownership records (set-aside records are
+        # out of date and don't count).
+        where.append(
+            "EXISTS (SELECT 1 FROM article_mentions m JOIN entities me ON me.qid = m.qid"
+            " WHERE m.article_id = a.id AND me.id IN (WITH RECURSIVE up(id) AS ("
+            " SELECT parent_entity_id FROM ownership_edges"
+            " WHERE child_entity_id = o.entity_id AND source != 'set_aside'"
+            " UNION SELECT e.parent_entity_id FROM ownership_edges e JOIN up"
+            " ON e.child_entity_id = up.id WHERE e.source != 'set_aside') SELECT id FROM up))"
+        )
     if f.tag:
         where.append(
             "EXISTS (SELECT 1 FROM article_tags at JOIN tags t ON t.id = at.tag_id"
@@ -406,6 +430,7 @@ def feed(
     cap: int = DEFAULT_OUTLET_CAP,
     visibility: Visibility | None = None,
     now: datetime | None = None,
+    graph: Graph | None = None,
 ) -> FeedPage:
     relevance = f.sort == "relevance" and bool(f.q)
     visible = visibility.at(now or datetime.now(UTC)) if visibility else None
@@ -441,23 +466,11 @@ def feed(
         [*args, f.per, (page - 1) * f.per],
     ).fetchall()
 
-    articles = [
-        Article(
-            id=r["id"],
-            url=r["url"],
-            title=r["title"],
-            published=parse_ts(r["shown_at"]).astimezone(tz),
-            date_kind="published" if r["outlet_published_at"] else "seen",
-            outlet_name=r["display_name"],
-            outlet_domain=r["domain"],
-            outlet_entity_id=r["entity_id"],
-            logo_path=r["logo_path"],
-            language=r["language"],
-            about=r["about"],
-        )
-        for r in rows
-    ]
+    articles = [_article(r, tz) for r in rows]
     _attach_tags(conn, articles)
+    attach_stories(conn, articles)
+    if graph:
+        attach_owner_mentions(conn, graph, articles)
     if f.balanced and f.sort in ("newest", "oldest"):
         # Break up runs from one outlet, within each day (items never cross a day heading).
         articles = [
@@ -478,6 +491,22 @@ def feed(
             for d, items in groupby(articles, key=lambda a: a.published.date())
         ]
     return FeedPage(groups, total, page, f.per, hidden)
+
+
+def _article(r: sqlite3.Row, tz: ZoneInfo) -> Article:
+    return Article(
+        id=r["id"],
+        url=r["url"],
+        title=r["title"],
+        published=parse_ts(r["shown_at"]).astimezone(tz),
+        date_kind="published" if r["outlet_published_at"] else "seen",
+        outlet_name=r["display_name"],
+        outlet_domain=r["domain"],
+        outlet_entity_id=r["entity_id"],
+        logo_path=r["logo_path"],
+        language=r["language"],
+        about=r["about"],
+    )
 
 
 SPREAD_GAP = 3  # an outlet isn't shown again until 3 other stories have been
@@ -543,6 +572,138 @@ def _attach_tags(conn: sqlite3.Connection, articles: list[Article]) -> None:
     )
     for r in rows:
         by_id[r["article_id"]].tags.append((r["slug"], r["label"], r["matched"] or ""))
+
+
+@dataclass
+class OwnerShare:
+    """One row of "Coverage by owner": the articles from outlets counted under `owners`
+    (see Graph.owner_group). No owners: `matched` says whether the outlets have a Wikidata
+    record at all."""
+
+    owners: tuple[Node, ...]
+    matched: bool
+    articles: int = 0
+    outlets: list[tuple[str, str, int]] = field(default_factory=list)  # (name, domain, n)
+
+
+def outlet_counts(
+    conn: sqlite3.Connection,
+    f: FeedFilters,
+    tz: ZoneInfo,
+    cap: int = DEFAULT_OUTLET_CAP,
+    visibility: Visibility | None = None,
+    now: datetime | None = None,
+) -> dict[int, int]:
+    """Articles per outlet among those the feed shows for `f` (all pages; after the
+    balanced mix's cap, so the numbers add up to the feed's total)."""
+    visible = visibility.at(now or datetime.now(UTC)) if visibility else None
+    cond = _conditions(f, tz, visible=visible)
+    if cond is None:
+        return {}
+    where, args = cond
+    source = " FROM articles a JOIN outlets o ON o.id = a.outlet_id"
+    if f.balanced:
+        capped, cap_args = _cap(source, where, args, cap)
+        where, args = [*where, capped], [*args, *cap_args]
+    clause = " WHERE " + " AND ".join(where) if where else ""
+    rows = conn.execute(f"SELECT a.outlet_id, count(*){source}{clause} GROUP BY a.outlet_id", args)
+    return {r[0]: r[1] for r in rows}
+
+
+def by_owner(conn: sqlite3.Connection, graph: Graph, counts: dict[int, int]) -> list[OwnerShare]:
+    """Group per-outlet article counts by owner, most articles first."""
+    groups: dict[tuple[str, ...] | None, OwnerShare] = {}
+    marks = ",".join("?" * len(counts))
+    rows = conn.execute(
+        f"SELECT id, display_name, domain, entity_id FROM outlets WHERE id IN ({marks})",  # noqa: S608
+        list(counts),
+    )
+    for r in rows:
+        owners = graph.owner_group(r["entity_id"])
+        matched = r["entity_id"] is not None
+        key = tuple(n.qid for n in owners) if matched else None
+        share = groups.setdefault(key, OwnerShare(owners, matched))
+        share.articles += counts[r["id"]]
+        share.outlets.append((r["display_name"], r["domain"], counts[r["id"]]))
+    for share in groups.values():
+        share.outlets.sort(key=lambda o: (-o[2], o[0].casefold()))
+    return sorted(
+        groups.values(),
+        key=lambda g: (not g.owners, -g.articles, g.owners[0].name.casefold() if g.owners else ""),
+    )
+
+
+def attach_stories(conn: sqlite3.Connection, articles: list[Article]) -> None:
+    """Fill in each article's story and the other outlets covering it."""
+    if not articles:
+        return
+    by_id = {a.id: a for a in articles}
+    marks = ",".join("?" * len(by_id))
+    for r in conn.execute(
+        f"SELECT article_id, story_id FROM article_stories WHERE article_id IN ({marks})",  # noqa: S608
+        list(by_id),
+    ):
+        by_id[r["article_id"]].story_id = r["story_id"]
+    story_ids = sorted({a.story_id for a in articles if a.story_id is not None})
+    if not story_ids:
+        return
+    outlets: dict[int, list[tuple[str, str]]] = {}
+    marks = ",".join("?" * len(story_ids))
+    for r in conn.execute(
+        "SELECT s.story_id, o.display_name, o.domain, min(a.published_at) AS first"  # noqa: S608
+        " FROM article_stories s JOIN articles a ON a.id = s.article_id"
+        " JOIN outlets o ON o.id = a.outlet_id"
+        f" WHERE s.story_id IN ({marks}) GROUP BY s.story_id, o.id ORDER BY first, o.display_name",
+        story_ids,
+    ):
+        outlets.setdefault(r["story_id"], []).append((r["display_name"], r["domain"]))
+    for a in articles:
+        if a.story_id is not None:
+            a.also = [o for o in outlets.get(a.story_id, []) if o[1] != a.outlet_domain]
+
+
+def story(
+    conn: sqlite3.Connection, story_id: int, tz: ZoneInfo, graph: Graph | None = None
+) -> list[Article]:
+    """A story's articles, in the order they were published, each with what linked it."""
+    rows = conn.execute(
+        f"SELECT {SELECT_COLUMNS}, s.shared FROM article_stories s"  # noqa: S608
+        " JOIN articles a ON a.id = s.article_id JOIN outlets o ON o.id = a.outlet_id"
+        f" WHERE s.story_id = ? ORDER BY {SHOWN_AT}, a.id",
+        (story_id,),
+    ).fetchall()
+    articles = []
+    for r in rows:
+        a = _article(r, tz)
+        a.story_id = story_id
+        a.shared = r["shared"]
+        articles.append(a)
+    _attach_tags(conn, articles)
+    if graph:
+        attach_owner_mentions(conn, graph, articles)
+    return articles
+
+
+def attach_owner_mentions(conn: sqlite3.Connection, graph: Graph, articles: list[Article]) -> None:
+    """Fill in each article's `owner_mentions` from what it names (article_mentions)."""
+    if not articles:
+        return
+    by_id = {a.id: a for a in articles}
+    marks = ",".join("?" * len(by_id))
+    named: dict[int, set[str]] = {}
+    for r in conn.execute(
+        f"SELECT article_id, qid FROM article_mentions WHERE article_id IN ({marks})",  # noqa: S608
+        list(by_id),
+    ):
+        named.setdefault(r["article_id"], set()).add(r["qid"])
+    chains: dict[int | None, dict[int, list[Node]]] = {}
+    for article_id, qids in named.items():
+        a = by_id[article_id]
+        if a.outlet_entity_id not in chains:
+            chains[a.outlet_entity_id] = graph.ancestors(a.outlet_entity_id)
+        a.owner_mentions = [
+            path for path in chains[a.outlet_entity_id].values() if path[0].qid in qids
+        ]
 
 
 def filter_options(conn: sqlite3.Connection) -> dict[str, list[sqlite3.Row]]:
@@ -695,6 +856,28 @@ def owner_options(graph: Graph, rows: list[sqlite3.Row]) -> list[tuple[str, str]
                     node = graph.nodes[e.parent]
                     options[node.qid] = node.name
     return sorted(options.items(), key=lambda kv: kv[1].casefold())
+
+
+TOPIC_DAYS = 30
+MAX_TOPICS = 12
+
+
+def topics(
+    conn: sqlite3.Connection, outlet_ids: list[int], now: datetime
+) -> list[tuple[str, str, int]]:
+    """(slug, label, articles) for the tags most used on these outlets' articles in the
+    last TOPIC_DAYS days, most first."""
+    if not outlet_ids:
+        return []
+    marks = ",".join("?" * len(outlet_ids))
+    rows = conn.execute(
+        "SELECT t.slug, t.label, count(*) AS n FROM article_tags at"  # noqa: S608
+        " JOIN tags t ON t.id = at.tag_id JOIN articles a ON a.id = at.article_id"
+        f" WHERE a.outlet_id IN ({marks}) AND a.published_at >= ?"
+        " GROUP BY t.id ORDER BY n DESC, t.label LIMIT ?",
+        [*outlet_ids, ts(now - timedelta(days=TOPIC_DAYS)), MAX_TOPICS],
+    )
+    return [(r["slug"], r["label"], r["n"]) for r in rows]
 
 
 def recent_articles(conn: sqlite3.Connection, outlet_id: int, limit: int = 20) -> list[sqlite3.Row]:

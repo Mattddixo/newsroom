@@ -25,8 +25,8 @@ from newsroom.log import setup_logging
 from newsroom.migrate import migrate
 from newsroom.net.http import ApiError
 from newsroom.ownership_view import Graph
-from newsroom.services import funding, ownership
-from newsroom.services.ingest import IngestBusy
+from newsroom.services import funding, ownership, stories
+from newsroom.services.ingest import IngestBusy, ts
 from newsroom.settings import get_settings
 from newsroom.sources.wikidata import WikidataSource
 
@@ -639,6 +639,76 @@ def cmd_pubdates(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_stories(args: argparse.Namespace) -> int:
+    """Link any new articles into stories, then print the stories several outlets covered,
+    each article with the words and names it was grouped by (for checking the grouping)."""
+    settings = get_settings()
+    now = datetime.now(UTC).replace(microsecond=0)
+    conn = connect(settings.db_path)
+    try:
+        stories.link_stories(conn, now)
+        rows = conn.execute(
+            "SELECT s.story_id, a.title, a.published_at, o.display_name, s.shared"
+            " FROM article_stories s JOIN articles a ON a.id = s.article_id"
+            " JOIN outlets o ON o.id = a.outlet_id WHERE s.story_id IN ("
+            "  SELECT s2.story_id FROM article_stories s2 JOIN articles a2 ON a2.id = s2.article_id"
+            "  WHERE a2.published_at >= ? GROUP BY s2.story_id"
+            "  HAVING count(DISTINCT a2.outlet_id) > 1)"
+            " ORDER BY s.story_id, a.published_at, a.id",
+            (ts(now - timedelta(hours=args.hours)),),
+        ).fetchall()
+    finally:
+        conn.close()
+    groups: dict[int, list] = {}
+    for r in rows:
+        groups.setdefault(r["story_id"], []).append(r)
+    print(f"Stories covered by more than one outlet, last {args.hours} hours: {len(groups)}")
+    for story_id, members in groups.items():
+        outlets = len({m["display_name"] for m in members})
+        print(f"\n[{story_id}] {len(members)} articles, {outlets} outlets")
+        for m in members:
+            why = f"  <- {m['shared']}" if m["shared"] else "  (first)"
+            when, outlet = m["published_at"][5:16], m["display_name"][:18]
+            print(f"  {when}  {outlet:18}  {m['title'][:70]}{why}")
+    return 0
+
+
+def cmd_mentions(args: argparse.Namespace) -> int:
+    """Recent articles that name an item in their outlet's ownership chain (what the site
+    marks "Names its owner"), for checking the matches."""
+    settings = get_settings()
+    conn = connect(settings.db_path)
+    try:
+        graph = Graph.load(conn)
+        rows = conn.execute(
+            "SELECT a.title, a.published_at, o.display_name, o.entity_id, m.qid, m.mentions"
+            " FROM article_mentions m JOIN articles a ON a.id = m.article_id"
+            " JOIN outlets o ON o.id = a.outlet_id WHERE a.published_at >= ?"
+            " ORDER BY a.published_at DESC",
+            (ts(datetime.now(UTC) - timedelta(hours=args.hours)),),
+        ).fetchall()
+    finally:
+        conn.close()
+    chains: dict[int | None, dict] = {}
+    shown = 0
+    for r in rows:
+        if r["entity_id"] not in chains:
+            chains[r["entity_id"]] = {
+                path[0].qid: path for path in graph.ancestors(r["entity_id"]).values()
+            }
+        path = chains[r["entity_id"]].get(r["qid"])
+        if path is None:
+            continue
+        shown += 1
+        print(f"{r['published_at'][5:16]}  {r['display_name'][:18]:18}  {r['title'][:70]}")
+        print(
+            f"    names {path[0].name} [{r['qid']}] x{r['mentions']}: "
+            + " -> ".join(n.name for n in path)
+        )
+    print(f"\n{shown} article(s) in the last {args.hours} hours name their outlet's owner.")
+    return 0
+
+
 def cmd_worker(_: argparse.Namespace) -> int:
     from newsroom.worker import main as worker_main
 
@@ -692,6 +762,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     pub.add_argument("--days", type=int, default=7, help="days to audit (default 7)")
     pub.set_defaults(func=cmd_pubdates)
+    st = sub.add_parser("stories", help="stories covered by several outlets, and why grouped")
+    st.add_argument("--hours", type=int, default=24)
+    st.set_defaults(func=cmd_stories)
+    mn = sub.add_parser("mentions", help="recent articles that name their outlet's owner")
+    mn.add_argument("--hours", type=int, default=72)
+    mn.set_defaults(func=cmd_mentions)
     sub.add_parser("retag", help="recompute tags after editing tags.yaml").set_defaults(
         func=cmd_retag
     )

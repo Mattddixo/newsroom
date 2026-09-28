@@ -35,6 +35,30 @@ def make_db(path: Path, now: datetime) -> sqlite3.Connection:
     return conn
 
 
+ENTITY_STAMP = "2026-09-24T12:00:00Z"
+
+
+def add_entity(conn: sqlite3.Connection, qid: str, name: str, *aliases: str, kind: str = "") -> int:
+    conn.execute(
+        "INSERT INTO entities (qid, name, kind, source, source_url, retrieved_at)"
+        " VALUES (?, ?, ?, 'wikidata', ?, ?)",
+        (qid, name, kind, f"https://www.wikidata.org/wiki/{qid}", ENTITY_STAMP),
+    )
+    eid = conn.execute("SELECT id FROM entities WHERE qid = ?", (qid,)).fetchone()[0]
+    conn.executemany(
+        "INSERT INTO entity_aliases (entity_id, alias) VALUES (?, ?)", [(eid, a) for a in aliases]
+    )
+    return eid
+
+
+def add_edge(conn: sqlite3.Connection, child: int, parent: int, source: str = "wikidata") -> None:
+    conn.execute(
+        "INSERT INTO ownership_edges (child_entity_id, parent_entity_id, relation, source,"
+        " source_url, retrieved_at) VALUES (?, ?, 'owned_by', ?, 'https://example.org', ?)",
+        (child, parent, source, ENTITY_STAMP),
+    )
+
+
 def rec(
     url: str,
     title: str,

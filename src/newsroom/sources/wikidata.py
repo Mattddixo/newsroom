@@ -94,6 +94,7 @@ class EntityData:
     parents: list[ParentClaim] = field(default_factory=list)
     identifiers: dict[str, list[str]] = field(default_factory=dict)
     died: str | None = None  # a person's date of death, as precise as Wikidata gives it
+    aliases: list[str] = field(default_factory=list)  # other labels and aliases (en, fr)
 
 
 # --------------------------------------------------------------------------- parsing
@@ -158,6 +159,18 @@ def _label(entity: dict) -> str:
     for value in labels.values():
         return str(value["value"])
     return str(entity.get("id", ""))
+
+
+def _aliases(entity: dict, label: str) -> list[str]:
+    """The item's labels and aliases other than `label`, in every language fetched."""
+    names = [v.get("value") for v in (entity.get("labels") or {}).values()]
+    for values in (entity.get("aliases") or {}).values():
+        names.extend(v.get("value") for v in values if isinstance(v, dict))
+    out: list[str] = []
+    for name in names:
+        if isinstance(name, str) and name.strip() and name != label and name not in out:
+            out.append(name.strip())
+    return out
 
 
 def _description(entity: dict) -> str:
@@ -250,7 +263,10 @@ def parse_entity(entity: dict, now: datetime) -> EntityData | None:
     if not isinstance(qid, str) or not QID_RE.match(qid) or "missing" in entity:
         return None
     claims = entity.get("claims") or {}
-    data = EntityData(qid=qid, label=_label(entity), description=_description(entity))
+    label = _label(entity)
+    data = EntityData(
+        qid=qid, label=label, description=_description(entity), aliases=_aliases(entity, label)
+    )
     data.instance_of = _item_values(_best_statements(claims, P_INSTANCE_OF, now))
     data.country = _item_values(_best_statements(claims, P_COUNTRY, now))
     websites = _string_values(_best_statements(claims, P_WEBSITE, now))
@@ -373,7 +389,7 @@ class WikidataSource:
         out: dict[str, EntityData] = {}
         for i in range(0, len(wanted), BATCH):
             batch = wanted[i : i + BATCH]
-            body = self._wbgetentities(batch, "labels|descriptions|claims")
+            body = self._wbgetentities(batch, "labels|aliases|descriptions|claims")
             for requested, entity in self._by_request(batch, body).items():
                 parsed = parse_entity(entity, now)
                 if parsed:

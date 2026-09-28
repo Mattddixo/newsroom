@@ -264,7 +264,13 @@ def _upsert_entity(
             stamp,
         ),
     )
-    return conn.execute("SELECT id FROM entities WHERE qid = ?", (data.qid,)).fetchone()[0]
+    entity_id = conn.execute("SELECT id FROM entities WHERE qid = ?", (data.qid,)).fetchone()[0]
+    conn.execute("DELETE FROM entity_aliases WHERE entity_id = ?", (entity_id,))
+    conn.executemany(
+        "INSERT OR IGNORE INTO entity_aliases (entity_id, alias) VALUES (?, ?)",
+        [(entity_id, a) for a in data.aliases],
+    )
+    return entity_id
 
 
 def _ref_qid(conn: sqlite3.Connection, ref: str) -> str | None:

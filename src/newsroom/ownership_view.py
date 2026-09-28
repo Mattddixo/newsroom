@@ -270,6 +270,21 @@ class Graph:
                     queue.append((e.child, [*path, e.child]))
         return paths
 
+    def ancestors(self, entity_id: int | None) -> dict[int, list[Node]]:
+        """Every entity above `entity_id`, nearest first, each with the shortest chain of
+        records from it down to `entity_id` (both ends included)."""
+        if entity_id is None or entity_id not in self.nodes:
+            return {}
+        paths: dict[int, list[Node]] = {}
+        queue = [(entity_id, [self.nodes[entity_id]])]
+        while queue:
+            current, path = queue.pop(0)
+            for e in self.up.get(current, []):
+                if e.parent not in paths and e.parent != entity_id:
+                    paths[e.parent] = [self.nodes[e.parent], *path]
+                    queue.append((e.parent, paths[e.parent]))
+        return paths
+
     def lineage(self, entity_id: int | None) -> list[int]:
         """The entity followed by everything above it, nearest first."""
         if entity_id is None or entity_id not in self.nodes:
@@ -284,6 +299,48 @@ class Graph:
                     queue.append(e.parent)
         return order
 
+    def _climb(self, start: int, seen: set[int]) -> tuple[list[tuple[Edge, Node]], bool]:
+        """From `start` up through the first majority owner at each step, as far as the
+        records go. Stops at a public company (owned by its shareholders), at a loop, or
+        at the top. Returns the steps, and whether anything was passed over on the way
+        (other owners at a step, or a public company's shareholders)."""
+        steps: list[tuple[Edge, Node]] = []
+        more = False
+        current = start
+        while self.up.get(current):
+            if "public company" in self.nodes[current].kinds:
+                more = True
+                break
+            owners = [e for e in self.up[current] if not e.minority]
+            if not owners:
+                more = True
+                break
+            if len(self.up[current]) > 1:
+                more = True  # other owners at this step: in the full chain, not the line
+            e = owners[0]
+            if e.parent in seen:
+                break  # the records loop back
+            steps.append((e, self.nodes[e.parent]))
+            seen.add(e.parent)
+            current = e.parent
+        return steps, more
+
+    def owner_group(self, entity_id: int | None) -> tuple[Node, ...]:
+        """Who an outlet's coverage is counted under: where each of its owners' lines
+        ends (as in the one-line summary, without the length limit), e.g. BCE Inc. for
+        CTV News whichever Bell company the records name first. Empty when no majority
+        owner is recorded. Joint owners are one group (Newsweek: its two owners)."""
+        if entity_id is None or entity_id not in self.nodes:
+            return ()
+        tops: dict[int, Node] = {}
+        for e in self.up.get(entity_id, []):
+            if e.minority:
+                continue
+            steps, _ = self._climb(e.parent, {entity_id, e.parent})
+            top = steps[-1][1] if steps else self.nodes[e.parent]
+            tops[top.id] = top
+        return tuple(sorted(tops.values(), key=lambda n: n.name.casefold()))
+
     def summary(self, entity_id: int | None) -> Summary:
         if entity_id is None or entity_id not in self.nodes:
             return Summary(None, [])
@@ -294,29 +351,10 @@ class Graph:
         above: list[tuple[Edge, Node]] = []
         more = False
         if direct:
-            seen = {entity_id, direct[0][1].id}
-            current = direct[0][1].id
-            while self.up.get(current):
-                if "public company" in self.nodes[current].kinds:
-                    # Owned by its shareholders: the line stops here (the outlet page lists
-                    # any stakes Wikidata records).
-                    more = True
-                    break
-                owners = [e for e in self.up[current] if not e.minority]
-                if not owners:
-                    more = True
-                    break
-                if len(self.up[current]) > 1:
-                    more = True  # other owners at this step: in the full chain, not the line
-                e = owners[0]
-                if e.parent in seen:
-                    break  # the records loop back
-                if len(above) == SUMMARY_DEPTH:
-                    more = True
-                    break
-                above.append((e, self.nodes[e.parent]))
-                seen.add(e.parent)
-                current = e.parent
+            first = direct[0][1].id
+            above, more = self._climb(first, {entity_id, first})
+            if len(above) > SUMMARY_DEPTH:
+                above, more = above[:SUMMARY_DEPTH], True
         return Summary(self.nodes[entity_id], direct, above, more)
 
 

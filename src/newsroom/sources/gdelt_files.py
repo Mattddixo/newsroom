@@ -9,6 +9,7 @@ repeated queries from one address. One run downloads only the slots it hasn't se
 The GKG is tab-separated, one article per line, 27 columns (GKG 2.1 codebook). Used here:
   1 DATE (YYYYMMDDHHMMSS, the 15-minute batch)   2 SourceCollectionIdentifier (1 = web)
   4 DocumentIdentifier (the article URL)         18 SharingImage
+  8 V2Themes   10 V2Locations   12 V2Persons   14 V2Organizations
   25 TranslationInfo ("srclc:fra;..." when translated)
   26 Extras (XML; the page title is in <PAGE_TITLE>)
 Only lines whose URL belongs to one of our outlets are kept; everything else is skipped
@@ -146,20 +147,40 @@ def main_places(v2locations: str) -> tuple[tuple[str, int], ...]:
     return tuple(sorted(kept, key=lambda cn: (-cn[1], cn[0]))[:MAX_PLACES])
 
 
-def main_people(v2persons: str) -> tuple[tuple[str, int], ...]:
-    """GKG V2Persons ("Name,offset;...": one entry per mention) -> the people mentioned
-    at least MIN_MENTIONS times, most mentioned first."""
+def name_counts(v2names: str) -> dict[str, int]:
+    """GKG V2Persons / V2Organizations ("Name,offset;...": one entry per mention) as
+    {name: mentions}. Names differing only in case or spacing count as one (the first
+    spelling is kept)."""
     counts: dict[str, int] = {}
-    names: dict[str, str] = {}
-    for entry in v2persons.split(";"):
+    spelling: dict[str, str] = {}
+    for entry in v2names.split(";"):
         name = " ".join(entry.rpartition(",")[0].split())
-        if not _NAME.match(name) or " " not in name:  # a full name, not a lone word
+        if not _NAME.match(name):
             continue
         key = name.casefold()
-        counts[key] = counts.get(key, 0) + 1
-        names.setdefault(key, name.title() if name.islower() else name)
-    kept = [(names[k], n) for k, n in counts.items() if n >= MIN_MENTIONS]
+        spelling.setdefault(key, name)
+        counts[spelling[key]] = counts.get(spelling[key], 0) + 1
+    return counts
+
+
+def main_people(v2persons: str) -> tuple[tuple[str, int], ...]:
+    """GKG V2Persons -> the people mentioned at least MIN_MENTIONS times, most mentioned
+    first. Full names only, not a lone word."""
+    kept = [
+        (name.title() if name.islower() else name, n)
+        for name, n in name_counts(v2persons).items()
+        if n >= MIN_MENTIONS and " " in name
+    ]
     return tuple(sorted(kept, key=lambda nn: (-nn[1], nn[0]))[:MAX_PEOPLE])
+
+
+def named(v2persons: str, v2orgs: str) -> tuple[tuple[str, int], ...]:
+    """Every person and organization the article names, with mentions, most mentioned
+    first."""
+    counts = name_counts(v2orgs)
+    for name, n in name_counts(v2persons).items():
+        counts[name] = counts.get(name, 0) + n
+    return tuple(sorted(counts.items(), key=lambda nn: (-nn[1], nn[0])))
 
 
 def parse_lines(
@@ -206,6 +227,7 @@ def parse_lines(
                 themes=theme_counts(cols[8]),
                 places=main_places(cols[10]),
                 people=main_people(cols[12]),
+                names=named(cols[12], cols[14]),
             )
         )
     return records, count

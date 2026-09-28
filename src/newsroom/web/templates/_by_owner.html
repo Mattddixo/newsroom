@@ -1,0 +1,24 @@
+{#- Coverage by owner: the articles a feed or story shows, counted per owner. #}
+{% if shares %}
+{% set total = shares | sum(attribute="articles") %}
+<ol class="shares">
+  {% for s in shares %}
+  <li>
+    <span class="share-who">
+    {%- if s.owners -%}
+      {% for n in s.owners %}<a href="{{ owner_link(n.qid) }}">{{ n.name }}</a>{% if not loop.last %} and {% endif %}{% endfor %}
+    {%- elif s.matched -%}
+      <a class="muted" href="/about#no-owner-listed">No majority owner recorded</a>
+    {%- else -%}
+      <a class="muted" href="/about#no-record">No ownership record</a>
+    {%- endif -%}
+    </span>
+    <span class="share-n">{{ "{:,}".format(s.articles) }} <span class="muted">· {{ (100 * s.articles / total) | round | int }}%</span></span>
+    <span class="share-outlets">{% for name, domain, n in s.outlets %}<a href="/outlet/{{ domain }}">{{ name }}</a> {{ n }}{% if not loop.last %} · {% endif %}{% endfor %}</span>
+  </li>
+  {% endfor %}
+</ol>
+<p class="kind">Each outlet's articles are counted under the owner its ownership line ends at. <a href="/about#by-owner">More</a></p>
+{% else %}
+<p class="kind">Nothing to count.</p>
+{% endif %}

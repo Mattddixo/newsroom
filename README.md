@@ -110,6 +110,8 @@ for Tailscale at boot.
 | `make date-audit [DAYS=7]` | Per outlet, feed and page dates vs. when articles were first seen; flags outlets whose dates look like a time zone error |
 | `make unmatched`   | Outlets without a Wikidata match, with candidate items               |
 | `make ownership`   | Re-resolve ownership for every outlet now                            |
+| `make stories`     | Stories several outlets covered in the last day, each article with the words and names it was grouped by |
+| `make mentions`    | Recent articles that name their own outlet's owner, with the ownership chain |
 | `make funding`     | Look up funding records now and apply `config/public_funding.yaml`   |
 | `make backup-db`   | Write a SQLite snapshot now                                          |
 | `make test`        | Lint + tests inside a throwaway build stage (no Python needed on the host) |

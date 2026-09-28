@@ -16,7 +16,7 @@
   {% if options %}
   {#- Collapsed by default. Open while any filter is set, so what narrows the list is
       always visible (and it stays open while you adjust it). #}
-  {%- set n_filters = [filters.tag, filters.outlet, filters.place, filters.country, filters.owner, filters.date_from, filters.date_to] | select | list | length %}
+  {%- set n_filters = [filters.tag, filters.outlet, filters.place, filters.country, filters.owner, filters.mentions, filters.date_from, filters.date_to] | select | list | length %}
   <details class="more-filters"{% if n_filters %} open{% endif %}>
   <summary>Filters{% if n_filters %} <span class="badge">{{ n_filters }} active</span>{% endif %}</summary>
   <div class="filters-row">
@@ -64,6 +64,9 @@
       </select>
     </label>
     {% endif %}
+    <label class="check" title="Stories that name an organization or person in the outlet's own ownership records">
+      <input type="checkbox" name="mentions" value="owner"{% if filters.mentions == "owner" %} checked{% endif %} {{ live | safe }}> Names its owner
+    </label>
     <label>From <input type="date" name="from" value="{{ filters.date_from or '' }}" {{ live | safe }}></label>
     <label>To <input type="date" name="to" value="{{ filters.date_to or '' }}" {{ live | safe }}></label>
   </div>
@@ -109,6 +112,10 @@
     </nav>
     {% endif %}
   </div>
+  <details class="by-owner" hx-get="/fragments/by-owner?{{ filters.params(page=1) | qs }}" hx-trigger="toggle once" hx-target="find .by-owner-panel" hx-swap="innerHTML" hx-disinherit="*">
+    <summary>Coverage by owner</summary>
+    <div class="by-owner-panel"><p class="kind">Loading…</p></div>
+  </details>
   {% elif filters.active %}
   <p class="count"><a class="clear" href="/">Clear filters</a></p>
   {% endif %}

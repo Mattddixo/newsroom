@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}{{ articles[0].title }} · newsroom{% endblock %}
+{% block content %}
+<p class="kind">One story, {{ articles | length }} article{{ "s" if articles | length != 1 }} from {{ outlets }} outlet{{ "s" if outlets != 1 }}</p>
+<h1 class="story-h"{% if articles[0].language and articles[0].language != "en" %} lang="{{ articles[0].language }}"{% endif %}>{{ articles[0].title }}</h1>
+<p class="kind">Grouped because their headlines and the people and organizations they name overlap strongly. <a href="/about#stories">How stories are grouped</a></p>
+
+<section aria-labelledby="owners-h">
+  <h2 id="owners-h">Who's covering it</h2>
+  <div class="by-owner-panel">{% include "_by_owner.html" %}</div>
+</section>
+
+<section aria-labelledby="articles-h">
+  <h2 id="articles-h">Articles, in the order they came out</h2>
+  <ol class="articles">
+    {% for a in articles %}
+    {% include "_article.html" %}
+    {% endfor %}
+  </ol>
+</section>
+{% endblock %}

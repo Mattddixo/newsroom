@@ -39,6 +39,14 @@
     </tbody>
   </table>
   <p><a href="/?owner={{ node.qid }}">Articles from these outlets</a></p>
+  {% if topics %}
+  <h3>Topics, last 30 days</h3>
+  <ul class="tags" aria-label="Topics in the last 30 days">
+    {% for slug, label, n in topics %}
+    <li><a href="/?owner={{ node.qid }}&amp;tag={{ slug }}" title="{{ n }} article{{ 's' if n != 1 }} from these outlets">{{ label }} {{ n }}</a></li>
+    {% endfor %}
+  </ul>
+  {% endif %}
   {% else %}
   <p class="empty">No outlets in this feed are recorded as owned by {{ node.name }}.</p>
   {% endif %}

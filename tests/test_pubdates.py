@@ -403,7 +403,7 @@ def test_job_wiring_limits_each_request(
         contact_email="x@example.org",
         pubdate_per_run=3,
     )
-    summary = jobs._publication_dates(settings, conn)
+    summary = jobs._publication_dates(settings, conn, now=NOW)
     assert summary is not None and summary.found == 3  # per-run cap
     pages = [c for c in calls if not c["url"].endswith("/robots.txt")]
     robots = [c for c in calls if c["url"].endswith("/robots.txt")]

@@ -25,6 +25,8 @@ class ArticleRecord:
     # (name, mentions), from GDELT's reading of the text. Empty for other sources.
     places: tuple[tuple[str, int], ...] = ()
     people: tuple[tuple[str, int], ...] = ()
+    # Every person and organization the text names (name, mentions), per GDELT.
+    names: tuple[tuple[str, int], ...] = ()
 
 
 @dataclass

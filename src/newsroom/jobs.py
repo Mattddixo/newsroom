@@ -21,7 +21,7 @@ from newsroom.db import connect
 from newsroom.net.http import ApiClient, ApiError
 from newsroom.net.safe_fetch import FetchBlocked, FetchResult, safe_fetch
 from newsroom.ownership_view import ownership_lines
-from newsroom.services import feed_ingest, funding, ingest, ownership, pubdates
+from newsroom.services import feed_ingest, funding, ingest, ownership, pubdates, stories
 from newsroom.services.coverage import build_report as coverage_report
 from newsroom.services.ingest import parse_ts, ts
 from newsroom.services.tagging import Tagger, retag_all, sync_tags
@@ -92,7 +92,9 @@ def ingest_articles(settings: Settings, *, wait: float = 0) -> ingest.RunSummary
             source = GkgFilesSource(client, settings.tmp_dir, ingest.outlet_domains(conn))
             backfill = min(backfill, catch_up)
         try:
-            return ingest.run_ingest(conn, source, tagger, backfill=backfill, catch_up=catch_up)
+            summary = ingest.run_ingest(conn, source, tagger, backfill=backfill, catch_up=catch_up)
+            _link_stories(conn)
+            return summary
         finally:
             client.close()
             conn.close()
@@ -104,15 +106,26 @@ def ingest_feeds(settings: Settings, *, wait: float = 0) -> ingest.RunSummary:
         tagger = sync_config(settings)
         conn = connect(settings.db_path)
         try:
-            return feed_ingest.run_feeds(
+            summary = feed_ingest.run_feeds(
                 conn,
                 _feed_fetcher(settings),
                 Robots(_robots_fetcher(settings, conn), cache=_ROBOTS_CACHE),
                 tagger,
                 max_age=timedelta(hours=settings.ingest_backfill_hours),
             )
+            _link_stories(conn)
+            return summary
         finally:
             conn.close()
+
+
+def _link_stories(conn: sqlite3.Connection) -> None:
+    """Group the new articles into stories. A failure here never fails ingestion: the
+    articles are in, and the next run links them."""
+    try:
+        stories.link_stories(conn, datetime.now(UTC).replace(microsecond=0))
+    except Exception:
+        log.exception("linking stories failed")
 
 
 def _feed_fetcher(settings: Settings) -> Callable[[str, list[str]], bytes]:
@@ -161,7 +174,10 @@ _ROBOTS_CACHE: dict = {}  # robots.txt rules per host, kept for the worker's lif
 
 
 def _publication_dates(
-    settings: Settings, conn: sqlite3.Connection, limit: int | None = None
+    settings: Settings,
+    conn: sqlite3.Connection,
+    limit: int | None = None,
+    now: datetime | None = None,
 ) -> pubdates.PubDateSummary | None:
     """Read publication dates for recent articles (see services/pubdates.py for limits)."""
     if not settings.pubdate_fetch:
@@ -174,7 +190,7 @@ def _publication_dates(
         conn,
         page,
         Robots(robots_text, cache=_ROBOTS_CACHE),
-        datetime.now(UTC).replace(microsecond=0),
+        now or datetime.now(UTC).replace(microsecond=0),
         limit=limit or settings.pubdate_per_run,
         max_age=timedelta(days=settings.pubdate_max_age_days),
         tagger=Tagger(load_tags(settings.config_dir / "tags.yaml")),

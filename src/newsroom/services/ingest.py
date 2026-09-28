@@ -22,6 +22,8 @@ from pathlib import Path
 
 from newsroom.config import OutletConfig
 from newsroom.places import EU, place_name
+from newsroom.services import mentions
+from newsroom.services.mentions import NameIndex
 from newsroom.services.tagging import Tagger, encode_themes, tag_article, tag_ids
 from newsroom.sources.base import ArticleRecord, ArticleSource, QueryResult
 from newsroom.urls import canonical_key
@@ -267,6 +269,7 @@ def run_ingest(
     )
     summary = RunSummary(cur.lastrowid or 0, "running", start, now)
     ids = tag_ids(conn)
+    index = NameIndex.load(conn)
     log.info(
         "ingest starting",
         extra={
@@ -290,7 +293,7 @@ def run_ingest(
                     throttled = result.throttled
                     _progress(conn, summary)
                     break  # the next run resumes this group from its last good slice
-                _store(conn, source.name, result, outlets, tagger, ids, summary)
+                _store(conn, source.name, result, outlets, tagger, ids, summary, index)
                 if result.window_end:
                     _advance(conn, source.name, group, result.window_end)
                     reported_progress = True
@@ -342,8 +345,10 @@ def _store(
     tagger: Tagger,
     ids: dict[str, int],
     summary: RunSummary,
+    index: NameIndex | None = None,
 ) -> None:
-    """Save one request's articles (deduplicated, tagged) in one transaction."""
+    """Save one request's articles (deduplicated, tagged) in one transaction. `index`
+    recognizes owners the articles name (see services.mentions)."""
     retrieved = ts(datetime.now(UTC))
     conn.execute("BEGIN IMMEDIATE")
     try:
@@ -355,12 +360,13 @@ def _store(
             stated = ts(rec.outlet_published_at) if rec.outlet_published_at else None
             themes = encode_themes(dict(rec.themes), tagger.themes)
             about = about_text(rec)
+            names = names_text(rec)
             key = canonical_key(rec.url)
             cur = conn.execute(
                 "INSERT INTO articles (url, url_key, title, outlet_id, published_at,"
                 " language, image_url, source, source_url, retrieved_at,"
-                " outlet_published_at, pubdate_method, pubdate_checked_at, gdelt_themes, about)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                " outlet_published_at, pubdate_method, pubdate_checked_at, gdelt_themes, about,"
+                " names) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
                 " ON CONFLICT (url_key) DO NOTHING",
                 (
                     rec.url,
@@ -378,20 +384,25 @@ def _store(
                     retrieved if stated else None,  # dated by its source: nothing to check
                     themes,
                     about,
+                    names,
                 ),
             )
+            found = index.match(rec.domain, rec.names) if index else {}
             if cur.rowcount == 1:
                 summary.inserted += 1
                 tag_article(conn, tagger, cur.lastrowid or 0, themes, "", ids)
                 _store_places(conn, cur.lastrowid or 0, rec)
-            elif about:
+                mentions.store(conn, cur.lastrowid or 0, found)
+            elif about or names:
                 # Already stored (e.g. from an outlet's feed): add what GDELT read, once.
                 row = conn.execute(
-                    "UPDATE articles SET about = ? WHERE url_key = ? AND about = '' RETURNING id",
-                    (about, key),
+                    "UPDATE articles SET about = ?, names = ? WHERE url_key = ?"
+                    " AND about = '' AND names = '' RETURNING id",
+                    (about, names, key),
                 ).fetchone()
                 if row:
                     _store_places(conn, row["id"], rec)
+                    mentions.store(conn, row["id"], found)
             if cur.rowcount != 1 and themes:
                 # Already stored (e.g. from an outlet's feed) without GDELT's themes.
                 row = conn.execute(
@@ -417,6 +428,15 @@ def about_text(rec: ArticleRecord) -> str:
     if any(code in EU for code, _ in rec.places):
         names.append("European Union")
     return " · ".join(names)
+
+
+MAX_NAMES = 8
+
+
+def names_text(rec: ArticleRecord) -> str:
+    """The people and organizations an article names at least twice, most first (for
+    telling which articles cover the same story). Empty if unknown."""
+    return " · ".join(name for name, n in rec.names[:MAX_NAMES] if n >= 2)
 
 
 def _store_places(conn: sqlite3.Connection, article_id: int, rec: ArticleRecord) -> None:

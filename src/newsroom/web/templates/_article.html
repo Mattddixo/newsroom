@@ -16,6 +16,25 @@
     </details>
     {% endif %}
   </div>
+  {% if a.owner_mentions %}
+  {#- Facts from two public records side by side: GDELT found the name in the article;
+      the ownership records place it above this outlet. #}
+  <p class="card-note card-note-owner">Names
+    {% for path in a.owner_mentions -%}
+    <a class="who" href="/owner/{{ path[0].qid }}" title="{{ path | map(attribute='name') | join(' → ') }}">{{ path[0].name }}</a>
+    {%- if not loop.last %}{{ " and " if loop.revindex == 2 else ", " }}{% endif %}
+    {%- endfor %},
+    <a class="note-label" href="/about#owner-mentions" title="What this means">in {{ a.outlet_name }}'s ownership chain</a>
+  </p>
+  {% endif %}
+  {% set in_story = in_story is defined and in_story %}
+  {% if a.also and not in_story %}
+  <p class="card-note"><span class="note-label">Also covered by</span>
+    <a href="/story/{{ a.story_id }}" title="The same story from other outlets, and who owns them">{{ a.also | map(attribute=0) | list | listing }}</a></p>
+  {% endif %}
+  {% if in_story and a.shared %}
+  <p class="about" title="Words and names this article shares with another outlet's article on the story">Grouped by: {{ a.shared }}</p>
+  {% endif %}
   {% set matched = a.about | matched(filters.q, a.title) %}
   {% if matched %}
   <p class="about" title="Found in who or where the story is about (GDELT's reading of the article), not only in the headline">Matched: {{ matched | join(" · ") }}</p>
